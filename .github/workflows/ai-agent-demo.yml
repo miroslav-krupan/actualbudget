@@ -1,0 +1,26 @@
+name: AI Agent Demo
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  hello-from-devcontainer:
+    if: github.event.label.name == 'feature'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
+
+    permissions:
+      issues: write
+
+    steps:
+      - name: Comment on issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue comment $ISSUE_NUMBER \
+            --repo $REPO \
+            --body "Hello World from Devcontainer"
