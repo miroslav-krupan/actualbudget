@@ -26,6 +26,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The container runs as root but the checked-out workspace is owned by a
+      # different uid, so git refuses to operate ("dubious ownership"). Trust
+      # it globally so every later git step (branch, commit, specify) works.
+      - name: Trust workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Create or switch to issue branch
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
