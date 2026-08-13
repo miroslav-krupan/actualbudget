@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 jobs:
-  analyze-issue:
+  spec-clarify:
     if: github.event.label.name == 'feature'
     runs-on: ubuntu-latest
     container:
@@ -13,41 +13,129 @@ jobs:
 
     permissions:
       issues: write
+      contents: write
 
     steps:
-      # Copilot CLI step: only COPILOT_GITHUB_TOKEN is present, so the agent
-      # can only authenticate against the business Copilot seat. No gh token
-      # is exposed here, so this step cannot touch the repo.
-      - name: Analyze issue with Copilot CLI
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create or switch to issue branch
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          # Slugify the issue title: lowercase, non-alphanumerics -> '-',
+          # collapse repeats, trim leading/trailing '-', cap length.
+          slug=$(echo "$ISSUE_TITLE" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-50 | sed -E 's/-+$//')
+          BRANCH="issue-${ISSUE_NUMBER}-${slug}"
+          echo "Branch name: $BRANCH"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch exists on remote, checking it out."
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+          else
+            echo "Branch does not exist, creating it."
+            git checkout -b "$BRANCH"
+          fi
+
+          # Expose the branch name to later steps.
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+      - name: Ensure Spec Kit is bootstrapped
+        run: |
+          if [ -d ".specify" ]; then
+            echo "Spec Kit already initialized (.specify exists), skipping init."
+          else
+            echo "Initializing Spec Kit for Copilot..."
+            specify init --here --integration copilot --script sh \
+              --ignore-agent-tools --force
+          fi
+
+      # First LLM call: generate the Spec Kit specification from the issue.
+      # Only COPILOT_GITHUB_TOKEN is present, so this step cannot touch the repo.
+      - name: Generate spec with Spec Kit (speckit.specify)
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
-          REPO: ${{ github.repository }}
         run: |
-          copilot --allow-all-tools -p "You are a software engineer triaging a \
-          GitHub issue in the repository ${REPO}.
+          # Write the issue to a file (injection-safe: variable contents are
+          # not re-parsed for command substitution).
+          printf '# Issue #%s: %s\n\n%s\n' \
+            "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" > issue-context.md
 
-          Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository. Read the GitHub issue context from the file \
+          ./issue-context.md and treat it as the feature description. Create a \
+          feature specification by running the Spec Kit specify workflow, i.e. \
+          execute the /speckit.specify slash command with that description. \
+          Work fully non-interactively: do not ask questions and do not start \
+          an interactive session. The generated spec MUST retain \
+          [NEEDS CLARIFICATION: ...] markers for every ambiguity — do NOT \
+          resolve or assume them. Do not run any git or gh commands."
 
-          Issue body:
-          ${ISSUE_BODY}
+      # Second LLM call: extract + rubber-duck the business clarification
+      # questions. Still Copilot-only; no repo access.
+      - name: Extract clarification questions (with rubber duck)
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository where a feature spec was just generated under the \
+          specs/ directory. Do the following non-interactively:
 
-          Task: Analyze this issue and write a short analysis (3-5 bullet \
-          points) covering what the problem is, which files or areas likely \
-          need to change, and a suggested fix approach. Do not write code.
+          1. Locate the newly generated spec.md under specs/.
+          2. Build a list of clarification questions that are STRICTLY \
+          functional or business in nature. Source them from BOTH (a) the \
+          [NEEDS CLARIFICATION] markers in the spec AND (b) any additional \
+          business ambiguities you identify. Exclude purely technical or \
+          implementation questions.
+          3. Rubber duck your draft list to get a second opinion: run \
+          /rubber-duck asking it to check whether each question is truly \
+          business/functional, whether any are actually hidden assumptions, \
+          and whether any important business questions are missing. Revise \
+          your list based on the critique.
+          4. You MUST NOT answer the questions, MUST NOT assume answers, and \
+          MUST NOT run the interactive /speckit.clarify loop.
+          5. Write the final result as JSON to ./clarifications.json using this \
+          schema: {\"issue\": ${ISSUE_NUMBER}, \"questions\": [{\"id\": \"Q1\", \
+          \"question\": \"...\", \"rationale\": \"why this matters for the \
+          business behavior\"}]}. If there are no business clarifications, \
+          write {\"issue\": ${ISSUE_NUMBER}, \"questions\": []}.
+          6. Also write a human-readable Markdown comment body to \
+          ./clarifications.md. Start it with the line \
+          '🤖 Spec Kit — business clarification questions'. If there are \
+          questions, list them as a numbered list including each rationale; if \
+          there are none, state that no business clarifications are needed.
 
-          Write ONLY the analysis text to the file ./analysis.md in the current \
-          directory. Start the file with the line '🤖 Copilot CLI analysis' \
-          followed by a blank line. Do not run any git or gh commands."
+          Do not run any git or gh commands."
 
-      # gh step: only GH_TOKEN is present, so this step can only talk to the
-      # repo. It has no Copilot access. It just posts the file produced above.
-      - name: Post analysis as issue comment
+      # gh step: only GH_TOKEN is present. Dumb publisher of the file above.
+      - name: Post clarification questions as issue comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file ./analysis.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+            --body-file ./clarifications.md
+
+      - name: Commit and push spec artifacts
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "actual-ai-agent[bot]"
+          git config user.email "actual-ai-agent@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "[AI] Add Spec Kit spec and clarification questions for issue #${ISSUE_NUMBER}"
+            git push -u origin "$BRANCH"
+          fi
