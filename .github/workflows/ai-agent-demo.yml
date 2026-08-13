@@ -15,12 +15,12 @@ jobs:
       issues: write
 
     steps:
-      - name: Analyze issue and comment with Copilot CLI
+      # Copilot CLI step: only COPILOT_GITHUB_TOKEN is present, so the agent
+      # can only authenticate against the business Copilot seat. No gh token
+      # is exposed here, so this step cannot touch the repo.
+      - name: Analyze issue with Copilot CLI
         env:
-          # Authenticates the Copilot CLI against the business Copilot seat
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-          # Used by the gh CLI (invoked by the agent) to post the comment
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -38,8 +38,16 @@ jobs:
           points) covering what the problem is, which files or areas likely \
           need to change, and a suggested fix approach. Do not write code.
 
-          Then post your analysis as a comment on the issue by running:
-          gh issue comment ${ISSUE_NUMBER} --repo ${REPO} --body-file <file>
+          Write ONLY the analysis text to the file ./analysis.md in the current \
+          directory. Start the file with the line '🤖 Copilot CLI analysis' \
+          followed by a blank line. Do not run any git or gh commands."
 
-          Prefix the comment body with the line '🤖 Copilot CLI analysis' as \
-          required by the repository's agent rules."
+      # gh step: only GH_TOKEN is present, so this step can only talk to the
+      # repo. It has no Copilot access. It just posts the file produced above.
+      - name: Post analysis as issue comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file ./analysis.md
