@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 jobs:
-  spec-clarify:
+  specify-ask-questions:
     if: github.event.label.name == 'feature'
     runs-on: ubuntu-latest
     container:
@@ -149,6 +149,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "[AI] Add Spec Kit spec and clarification questions for issue #${ISSUE_NUMBER}"
+            git commit -m "[AI] Created specification for issue #${ISSUE_NUMBER}"
             git push -u origin "$BRANCH"
           fi
