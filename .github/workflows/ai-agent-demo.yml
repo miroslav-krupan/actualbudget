@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 jobs:
-  hello-from-devcontainer:
+  analyze-issue:
     if: github.event.label.name == 'feature'
     runs-on: ubuntu-latest
     container:
@@ -15,12 +15,31 @@ jobs:
       issues: write
 
     steps:
-      - name: Comment on issue
+      - name: Analyze issue and comment with Copilot CLI
         env:
+          # Authenticates the Copilot CLI against the business Copilot seat
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          # Used by the gh CLI (invoked by the agent) to post the comment
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
           REPO: ${{ github.repository }}
         run: |
-          gh issue comment $ISSUE_NUMBER \
-            --repo $REPO \
-            --body "Hello World from Devcontainer"
+          copilot --allow-all-tools -p "You are a software engineer triaging a \
+          GitHub issue in the repository ${REPO}.
+
+          Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+          Issue body:
+          ${ISSUE_BODY}
+
+          Task: Analyze this issue and write a short analysis (3-5 bullet \
+          points) covering what the problem is, which files or areas likely \
+          need to change, and a suggested fix approach. Do not write code.
+
+          Then post your analysis as a comment on the issue by running:
+          gh issue comment ${ISSUE_NUMBER} --repo ${REPO} --body-file <file>
+
+          Prefix the comment body with the line '🤖 Copilot CLI analysis' as \
+          required by the repository's agent rules."
