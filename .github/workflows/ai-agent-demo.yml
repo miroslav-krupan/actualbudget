@@ -10,6 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
+      # The image's default user is 'vscode' (uid 1000), which cannot write
+      # to the runner's root-owned work/temp dirs, breaking JS actions like
+      # checkout (EACCES on _runner_file_commands). Run as root to fix this;
+      # the image's ENV PATH already exposes all tools (specify, copilot,
+      # node) so no PATH adjustment is needed. The OS user is unrelated to
+      # the git commit identity, which is set explicitly below.
+      options: --user root
 
     permissions:
       issues: write
@@ -130,8 +137,8 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          git config user.name "actual-ai-agent[bot]"
-          git config user.email "actual-ai-agent@users.noreply.github.com"
+          git config user.name "miroslav-krupan"
+          git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit."
