@@ -165,16 +165,27 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
           copilot --allow-all-tools -p "You are working inside a Spec Kit \
           enabled repository. The feature spec at ${SPEC_DIR}/spec.md is now \
           finalized. Generate the implementation plan by running the \
           /speckit.plan slash command for the current feature. Work fully \
           non-interactively: do not ask questions and do not start an \
-          interactive session. After the plan is generated, append a \
-          '## References' section to ${SPEC_DIR}/plan.md linking the design \
-          issue (#${ISSUE_NUMBER}), the branch (${BRANCH}), and the spec \
-          (${SPEC_DIR}/spec.md). Do not run any git or gh commands."
+          interactive session. Do NOT add any references or links yourself, \
+          and do not run any git or gh commands."
+
+          # Append the References section deterministically from the workflow
+          # context so the links always point at THIS fork (the LLM tends to
+          # mis-qualify #N against the upstream repo and to emit broken
+          # repo-relative paths).
+          {
+            printf '\n## References\n\n'
+            printf -- '- Design ticket: %s/%s/issues/%s\n' "$SERVER_URL" "$REPO" "$ISSUE_NUMBER"
+            printf -- '- Branch: %s/%s/tree/%s\n' "$SERVER_URL" "$REPO" "$BRANCH"
+            printf -- '- Spec: %s/%s/blob/%s/%s/spec.md\n' "$SERVER_URL" "$REPO" "$BRANCH" "$SPEC_DIR"
+          } >> "${SPEC_DIR}/plan.md"
 
       # gh step: publish the outcome. Either the next round of questions, or an
       # implementation ticket plus a closing comment on the design ticket.
