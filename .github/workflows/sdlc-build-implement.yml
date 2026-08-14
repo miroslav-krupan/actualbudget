@@ -56,6 +56,15 @@ jobs:
           git checkout "$BRANCH"
           echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
+      # The feature branch may predate the latest automation scripts. Overlay
+      # them from the default branch so the gate always runs the CURRENT
+      # tooling (the branch still provides the code under test). Without this,
+      # an old branch runs a stale gate script.
+      - name: Sync automation scripts from default branch
+        run: |
+          git fetch origin master --depth=1
+          git checkout origin/master -- .github/scripts
+
       - name: Determine spec dir and mode
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}

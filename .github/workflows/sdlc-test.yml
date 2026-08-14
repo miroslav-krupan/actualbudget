@@ -51,6 +51,13 @@ jobs:
           git checkout "$BRANCH"
           echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
+      # Overlay the latest automation scripts from the default branch so the
+      # gate runs the current tooling even on an older feature branch.
+      - name: Sync automation scripts from default branch
+        run: |
+          git fetch origin master --depth=1
+          git checkout origin/master -- .github/scripts
+
       - name: Determine spec dir and round
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
