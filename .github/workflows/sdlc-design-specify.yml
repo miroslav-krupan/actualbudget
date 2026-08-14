@@ -10,7 +10,8 @@ jobs:
     # (those carry the same label but their title starts with [IMPL]).
     if: >
       github.event.label.name == 'feature' &&
-      !startsWith(github.event.issue.title, '[IMPL]')
+      !startsWith(github.event.issue.title, '[IMPL]') &&
+      !startsWith(github.event.issue.title, '[TEST]')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest

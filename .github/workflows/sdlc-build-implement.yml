@@ -104,8 +104,18 @@ jobs:
           points, do not restate the whole plan) to ./refine-summary.md, \
           starting with the line 'Plan updated from developer feedback'."
 
+      # Install deps once (IMPLEMENT only) so the LLM can run the affected
+      # package's tests during implementation, and so the deterministic gate
+      # can run them afterwards. ~40s including native builds.
+      - name: Install dependencies
+        if: env.MODE == 'IMPLEMENT'
+        run: |
+          corepack enable || true
+          yarn install --immutable
+
       # IMPLEMENT: the developer signalled /ready. Build the code the Spec Kit
-      # way (tasks -> implement). Copilot-only; no repo access.
+      # way (tasks -> implement), write tests, and self-verify to green.
+      # Copilot-only; no repo access.
       - name: Implement feature
         if: env.MODE == 'IMPLEMENT'
         env:
@@ -116,25 +126,47 @@ jobs:
           enabled repository on the feature branch for implementation ticket \
           #${ISSUE_NUMBER}. The plan is at ${SPEC_DIR}/plan.md and the spec at \
           ${SPEC_DIR}/spec.md. The developer signalled readiness to implement \
-          (final notes, if any, are in ./dev-comment.md). Work \
-          non-interactively and do NOT run git or gh:
+          (final notes, if any, are in ./dev-comment.md). Dependencies are \
+          already installed. Work non-interactively and do NOT run git or gh:
 
           1. Generate the task breakdown by running the /speckit.tasks slash \
           command for the current feature.
           2. Implement the feature by running the /speckit.implement slash \
-          command, making the actual code changes the plan describes and \
-          honouring any final notes in ./dev-comment.md.
-          3. Write a SHORT summary of what you implemented (files changed, key \
-          decisions, and how to verify) to ./implement-summary.md, starting \
-          with the line 'Implementation complete'."
+          command: make the code changes the plan describes AND write \
+          automated tests for the new/changed behaviour in the affected \
+          package, following that package's existing test conventions. Honour \
+          any final notes in ./dev-comment.md.
+          3. Run the affected package's FULL test suite yourself and iterate: \
+          if anything fails, fix the code or the tests and re-run. Repeat up \
+          to 3 times until the whole suite passes. For @actual-app/core the \
+          command is 'yarn workspace @actual-app/core test'. Do NOT consider \
+          the work finished while any test fails.
+          4. Write a SHORT summary of what you implemented (files changed, key \
+          decisions, how to verify) to ./implement-summary.md, starting with \
+          the line 'Implementation complete'.
+          5. Write ./test-ticket.md: a short description of the change and \
+          concrete steps for a tester to verify it (this becomes a testing \
+          ticket body). Describe what changed and how to test it; do not list \
+          every automated test."
+
+      # Deterministic gate: re-run the affected package's suite and capture
+      # auditable evidence. This — not the LLM — is the source of truth. No
+      # token here; running tests needs none.
+      - name: Test gate (run suite + capture evidence)
+        if: env.MODE == 'IMPLEMENT'
+        run: bash .github/scripts/run-test-gate.sh "$SPEC_DIR" impl
 
       # gh step: publish the outcome on the IMPL ticket.
       - name: Publish outcome
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
           REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
+          RUN_URL="$SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+
           if [ "$MODE" = "REFINE" ]; then
             # Keep the IMPL body in sync with the current plan, re-appending
             # the hidden branch marker so future runs can still find it.
@@ -147,8 +179,37 @@ jobs:
             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
               --body-file ./refine-summary.md
           else
-            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
-              --body-file ./implement-summary.md
+            # Comment: the LLM's summary + a deterministic test-gate section.
+            {
+              cat ./implement-summary.md
+              echo
+              echo "## Test gate"
+              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo '✅ PASSED' || echo '❌ FAILED') ($((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed in \`$TESTS_PKG\`)"
+              echo "- Evidence: $SERVER_URL/$REPO/blob/$BRANCH/$EVIDENCE_DIR/summary.md"
+              echo "- Full run: $RUN_URL"
+            } > impl-comment.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file impl-comment.md
+            rm -f impl-comment.md
+
+            # Only open the [TEST] ticket when the gate is genuinely green.
+            if [ "$TESTS_PASSED" = "true" ]; then
+              DESIGN_TITLE=${ISSUE_TITLE#'[IMPL] '}
+              {
+                cat ./test-ticket.md
+                echo
+                echo "## Tests run (regression + new)"
+                cat "$EVIDENCE_DIR/summary.md"
+                echo
+                echo "**Evidence:** $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
+                echo "**Full run:** $RUN_URL"
+                printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
+              } > test-body.md
+              gh issue create --repo "$REPO" \
+                --title "[TEST] $DESIGN_TITLE" \
+                --label feature \
+                --body-file test-body.md
+              rm -f test-body.md
+            fi
           fi
 
       - name: Commit and push
@@ -158,18 +219,30 @@ jobs:
           git config user.name "miroslav-krupan"
           git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
 
-          # Drop scratch handoff files so only real artifacts persist.
-          rm -f dev-comment.md refine-summary.md implement-summary.md
+          # Drop scratch handoff files so only real artifacts (code, tests,
+          # and the committed test-results/ evidence) persist.
+          rm -f dev-comment.md refine-summary.md implement-summary.md test-ticket.md
 
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
             if [ "$MODE" = "IMPLEMENT" ]; then
-              MSG="[AI] Implement feature for ticket #${ISSUE_NUMBER}"
+              MSG="[AI] Implement feature and tests for ticket #${ISSUE_NUMBER}"
             else
               MSG="[AI] Update implementation plan from feedback for ticket #${ISSUE_NUMBER}"
             fi
             git commit -m "$MSG"
             git push -u origin "$BRANCH"
           fi
+
+      # Fail the job if the gate wasn't green. Runs after commit so the
+      # evidence is always committed and auditable, even on failure.
+      - name: Enforce test result
+        if: env.MODE == 'IMPLEMENT'
+        run: |
+          if [ "$TESTS_PASSED" != "true" ]; then
+            echo "::error::Test gate failed (${TESTS_FAILED} failing in ${TESTS_PKG}). See committed evidence and the run log."
+            exit 1
+          fi
+          echo "Test gate passed: ${TESTS_TOTAL} tests, 0 failing."

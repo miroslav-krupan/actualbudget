@@ -1,0 +1,147 @@
+name: SDLC · Test
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: sdlc-test-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # React to a human comment on an open, feature-labelled testing ticket
+    # (title starts with [TEST]); ignore PRs and the agent's own bot comments.
+    if: >
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'feature') &&
+      startsWith(github.event.issue.title, '[TEST]') &&
+      github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
+      options: --user root
+
+    permissions:
+      issues: write
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trust workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The feature branch is in a hidden marker in the [TEST] ticket body.
+      - name: Check out the feature branch
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          BRANCH=$(printf '%s' "$ISSUE_BODY" \
+            | sed -nE 's/.*feature-branch: ([^ ]+) -->.*/\1/p' | head -1)
+          if [ -z "$BRANCH" ]; then
+            echo "::error::feature-branch marker not found in the [TEST] ticket body."
+            exit 1
+          fi
+          echo "Feature branch: $BRANCH"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+      - name: Determine spec dir and round
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          SPEC_DIR=$(find specs -maxdepth 1 -type d -name '[0-9]*' | sort | tail -1)
+          if [ -z "$SPEC_DIR" ]; then
+            echo "::error::No spec directory found under specs/."
+            exit 1
+          fi
+          EXISTING=$(find "$SPEC_DIR/test-results" -maxdepth 1 -type d -name 'cases-round-*' 2>/dev/null | wc -l | tr -d ' ')
+          ROUND=$((EXISTING + 1))
+          # Hand the tester's edge cases to the LLM via a file (injection-safe).
+          printf '%s' "$COMMENT_BODY" > edge-cases.md
+          echo "SPEC_DIR=$SPEC_DIR"; echo "ROUND=$ROUND"
+          { echo "SPEC_DIR=$SPEC_DIR"; echo "ROUND=$ROUND"; } >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          corepack enable || true
+          yarn install --immutable
+
+      # LLM: add tests for the tester's edge cases and self-verify to green.
+      - name: Write edge-case tests
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository on the feature branch for testing ticket \
+          #${ISSUE_NUMBER}. A tester described edge cases to cover in \
+          ./edge-cases.md. The spec is at ${SPEC_DIR}/spec.md and the plan at \
+          ${SPEC_DIR}/plan.md. Dependencies are installed. Work \
+          non-interactively and do NOT run git or gh:
+
+          1. Read ./edge-cases.md and review the existing tests and \
+          implementation for this feature.
+          2. Add automated tests in the affected package covering the tester's \
+          edge cases, following that package's existing test conventions. Do \
+          NOT weaken or delete existing tests.
+          3. Run the affected package's FULL test suite yourself and iterate \
+          up to 3 times: if an edge case reveals a genuine bug, fix the \
+          implementation; if it reveals expected behaviour, adjust the new \
+          test. Repeat until the whole suite passes. For @actual-app/core the \
+          command is 'yarn workspace @actual-app/core test'. Do NOT finish \
+          while any test fails.
+          4. Write a SHORT summary of the tests you added and any findings to \
+          ./test-summary.md, starting with the line 'Edge-case tests added'."
+
+      # Deterministic gate: the auditable source of truth.
+      - name: Test gate (run suite + capture evidence)
+        run: bash .github/scripts/run-test-gate.sh "$SPEC_DIR" "cases-round-${ROUND}"
+
+      - name: Publish outcome
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          RUN_URL="$SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+          {
+            cat ./test-summary.md
+            echo
+            echo "## Test gate (round ${ROUND})"
+            echo "- Result: $([ "$TESTS_PASSED" = true ] && echo '✅ PASSED' || echo '❌ FAILED') ($((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed in \`$TESTS_PKG\`)"
+            echo "- Evidence: $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
+            echo "- Full run: $RUN_URL"
+          } > test-comment.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file test-comment.md
+          rm -f test-comment.md
+
+      - name: Commit and push
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "miroslav-krupan"
+          git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
+
+          rm -f edge-cases.md test-summary.md
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "[AI] Add edge-case tests (round ${ROUND}) for ticket #${ISSUE_NUMBER}"
+            git push -u origin "$BRANCH"
+          fi
+
+      - name: Enforce test result
+        run: |
+          if [ "$TESTS_PASSED" != "true" ]; then
+            echo "::error::Test gate failed (${TESTS_FAILED} failing in ${TESTS_PKG}). See committed evidence and the run log."
+            exit 1
+          fi
+          echo "Test gate passed: ${TESTS_TOTAL} tests, 0 failing."

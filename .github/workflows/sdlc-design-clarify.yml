@@ -20,6 +20,7 @@ jobs:
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'feature') &&
       !startsWith(github.event.issue.title, '[IMPL]') &&
+      !startsWith(github.event.issue.title, '[TEST]') &&
       github.event.comment.user.type != 'Bot' &&
       contains(github.event.comment.body, '/answered')
     runs-on: ubuntu-latest
