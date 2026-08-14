@@ -25,8 +25,11 @@ MAX_ATTEMPTS="${MAX_GATE_ATTEMPTS:-3}"
 FIX_TIMEOUT="${GATE_FIX_TIMEOUT:-900}"
 OUT="$SPEC_DIR/test-results/$LABEL"
 mkdir -p "$OUT"
-XML="$PWD/$OUT/junit.xml"
-LOG="$PWD/$OUT/console.log"
+# Absolute paths (vitest runs in the package dir via `exec`, so a relative
+# --outputFile would resolve wrong). Robust for relative or absolute SPEC_DIR.
+OUT_ABS=$(cd "$OUT" && pwd)
+XML="$OUT_ABS/junit.xml"
+LOG="$OUT_ABS/console.log"
 
 # Collect the LLM's changed files.
 CHANGED=()
@@ -83,8 +86,9 @@ run_suite() {
     try {
       const s=fs.readFileSync(process.argv[1],"utf8");
       const m=s.match(/<testsuites\b[^>]*\btests="(\d+)"[^>]*\bfailures="(\d+)"[^>]*\berrors="(\d+)"/);
-      console.log(m ? `${m[1]} ${m[2]} ${m[3]}` : "0 1 0");
-    } catch(e){ console.log("0 1 0"); }
+      // -1 signals "could not parse" — used for display only, never the verdict.
+      console.log(m ? `${m[1]} ${m[2]} ${m[3]}` : "-1 -1 -1");
+    } catch(e){ console.log("-1 -1 -1"); }
   ' "$XML")
   TOTAL=$(printf '%s' "$counts" | awk '{print $1}')
   FAILS=$(printf '%s' "$counts" | awk '{print $2}')
@@ -97,7 +101,11 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
   echo "== Gate attempt $attempt/$MAX_ATTEMPTS =="
   run_suite
   echo "vitest exit=$RC tests=$TOTAL failures=$FAILS errors=$ERRS"
-  if [ "$RC" -eq 0 ] && [ "$FAILS" -eq 0 ] && [ "$ERRS" -eq 0 ]; then
+  # vitest's exit code is the source of truth: it exits non-zero on any test
+  # failure, error, or no-tests-found. The parsed counts are for display only
+  # and must NEVER override a green exit (a parse hiccup used to fake a failure
+  # and trigger a pointless fix loop).
+  if [ "$RC" -eq 0 ]; then
     VERDICT=true
     break
   fi
@@ -117,7 +125,19 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
   attempt=$((attempt + 1))
 done
 
-PASSED=$(( TOTAL - FAILS - ERRS ))
+# Human-readable totals. If the XML could not be parsed (TOTAL<0) but vitest
+# passed, say so instead of printing bogus numbers.
+if [ "$TOTAL" -ge 0 ] 2>/dev/null; then
+  PASSED=$(( TOTAL - FAILS - ERRS ))
+  TOTALS_LINE="$PASSED passed, $FAILS failed, $ERRS errors (of $TOTAL)"
+  TOTAL_ENV=$TOTAL
+  FAILED_ENV=$(( FAILS + ERRS ))
+else
+  PASSED="?"
+  TOTALS_LINE="counts unavailable (JUnit XML unparsed); verdict from vitest exit code $RC"
+  TOTAL_ENV=0
+  FAILED_ENV=$([ "$VERDICT" = true ] && echo 0 || echo 1)
+fi
 
 NEW_LIST=$(node -e '
 const fs=require("fs");
@@ -142,7 +162,7 @@ try {
   echo "- Affected package: \`$PKG_NAME\`"
   echo "- Test scope: \`$SCOPE\`"
   echo "- Result: $([ "$VERDICT" = true ] && echo PASSED || echo FAILED)"
-  echo "- Totals: $PASSED passed, $FAILS failed, $ERRS errors (of $TOTAL)"
+  echo "- Totals: $TOTALS_LINE"
   echo "- Gate attempts used: $attempt of $MAX_ATTEMPTS"
   echo
   echo "## New tests"
@@ -151,16 +171,16 @@ try {
 
 {
   echo "TESTS_PASSED=$VERDICT"
-  echo "TESTS_TOTAL=$TOTAL"
-  echo "TESTS_FAILED=$((FAILS+ERRS))"
+  echo "TESTS_TOTAL=$TOTAL_ENV"
+  echo "TESTS_FAILED=$FAILED_ENV"
   echo "TESTS_PKG=$PKG_NAME"
   echo "EVIDENCE_DIR=$OUT"
 } >> "$GITHUB_ENV"
 
 {
   echo "### Test gate ($LABEL): $([ "$VERDICT" = true ] && echo '✅ PASSED' || echo '❌ FAILED')"
-  echo "- \`$PKG_NAME\` scope \`$SCOPE\`: $PASSED passed, $FAILS failed, $ERRS errors (attempts: $attempt)"
+  echo "- \`$PKG_NAME\` scope \`$SCOPE\`: $TOTALS_LINE (attempts: $attempt)"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-echo "Gate verdict: TESTS_PASSED=$VERDICT ($PASSED/$TOTAL passed)"
+echo "Gate verdict: TESTS_PASSED=$VERDICT ($TOTALS_LINE)"
 exit 0
