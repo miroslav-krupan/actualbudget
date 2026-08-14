@@ -113,9 +113,11 @@ jobs:
           2. Update ${SPEC_DIR}/spec.md: fold every answered clarification into \
           the spec and REMOVE the corresponding [NEEDS CLARIFICATION] marker. \
           Keep markers only for still-unanswered points.
-          3. Rubber duck (run /rubber-duck) your assessment of whether the \
-          answers are sufficient and whether they introduce new business \
-          ambiguities.
+          3. Rubber duck (run /rubber-duck) your assessment, but consider ONLY \
+          genuinely business or functional ambiguities. Completely ignore and \
+          do NOT report technical or implementation concerns — the business \
+          analyst will not act on those. Discard any such points from the \
+          critique entirely.
 
           Then branch on the situation.
 
@@ -126,17 +128,22 @@ jobs:
           assumption and add an 'Assumptions' section listing them. No \
           [NEEDS CLARIFICATION] markers may remain.
           - Write 'COMPLETE' to ./clarification-status.txt.
-          - Write a closing summary to ./closing-summary.md starting with the \
-          line 'Design clarification complete'. State that the maximum \
-          number of clarification rounds was reached and remaining questions \
-          were resolved via documented assumptions (summarize them briefly).
+          - Write a SHORT closing summary to ./closing-summary.md: a single \
+          brief paragraph starting with the line 'Design clarification \
+          complete'. State ONLY that the maximum number of clarification \
+          rounds was reached and any remaining points were finalized with \
+          documented assumptions (recorded in the spec's Assumptions section). \
+          Do NOT restate or recap the answers, do NOT re-list the questions, \
+          and do NOT mention the rubber duck or any technical notes. Do not \
+          add the implementation ticket link yourself.
 
           ELSE (not the final round):
           IF all previous questions are fully answered AND you find no new \
           business ambiguities:
           - Write 'COMPLETE' to ./clarification-status.txt and produce \
-          ./closing-summary.md as above, except the closing summary should \
-          state that all clarification questions were answered.
+          ./closing-summary.md as above, except state ONLY that all \
+          clarification questions have been answered and the specification is \
+          finalized.
           ELSE (some questions remain OR new business questions arise):
           - Write 'NEEDS_MORE' to ./clarification-status.txt.
           - Write the outstanding/new STRICTLY business/functional questions as \
