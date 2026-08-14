@@ -12,13 +12,11 @@ concurrency:
 
 jobs:
   develop:
-    # React to a human comment on an open, feature-labelled implementation
-    # ticket (title starts with [IMPL]); ignore PRs and the agent's own
-    # bot comments.
+    # React to a human comment on an open implementation ticket, identified
+    # solely by its [IMPL] title prefix; ignore PRs and our own bot comments.
     if: >
       !github.event.issue.pull_request &&
       github.event.issue.state == 'open' &&
-      contains(github.event.issue.labels.*.name, 'feature') &&
       startsWith(github.event.issue.title, '[IMPL]') &&
       github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
@@ -199,6 +197,9 @@ jobs:
             # Only open the [TEST] ticket when the gate is genuinely green.
             if [ "$TESTS_PASSED" = "true" ]; then
               DESIGN_TITLE=${ISSUE_TITLE#'[IMPL] '}
+              # The design ticket number is encoded in the branch name
+              # (issue-<N>-slug); the IMPL ticket is the current issue.
+              DESIGN_ISSUE=$(printf '%s' "$BRANCH" | sed -nE 's/^issue-([0-9]+)-.*/\1/p')
               {
                 cat ./test-ticket.md
                 echo
@@ -208,10 +209,11 @@ jobs:
                 echo "**Evidence:** $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
                 echo "**Full run:** $RUN_URL"
                 printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
+                printf '<!-- design-issue: %s -->\n' "$DESIGN_ISSUE"
+                printf '<!-- impl-issue: %s -->\n' "$ISSUE_NUMBER"
               } > test-body.md
               gh issue create --repo "$REPO" \
                 --title "[TEST] $DESIGN_TITLE" \
-                --label feature \
                 --body-file test-body.md
               rm -f test-body.md
             fi

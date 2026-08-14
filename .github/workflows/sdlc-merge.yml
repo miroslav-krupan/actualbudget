@@ -1,0 +1,85 @@
+name: SDLC · Merge
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: sdlc-merge-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # The tester signals /ready on the [TEST] ticket to finalize: open a PR
+    # (to this fork, not upstream) and a [MERGE] tracking ticket. Ignore PRs
+    # and our own bot comments. No devcontainer needed — just gh.
+    if: >
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      startsWith(github.event.issue.title, '[TEST]') &&
+      contains(github.event.comment.body, '/ready') &&
+      github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Open PR and merge ticket
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_ISSUE: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Pull the branch and ticket numbers from the hidden markers the
+          # build phase embedded in the [TEST] ticket body.
+          BRANCH=$(printf '%s' "$ISSUE_BODY" | sed -nE 's/.*feature-branch: ([^ ]+) -->.*/\1/p' | head -1)
+          DESIGN_ISSUE=$(printf '%s' "$ISSUE_BODY" | sed -nE 's/.*design-issue: ([0-9]+) -->.*/\1/p' | head -1)
+          IMPL_ISSUE=$(printf '%s' "$ISSUE_BODY" | sed -nE 's/.*impl-issue: ([0-9]+) -->.*/\1/p' | head -1)
+          if [ -z "$BRANCH" ]; then
+            echo "::error::feature-branch marker not found in the [TEST] ticket body."
+            exit 1
+          fi
+          DESIGN_TITLE=${ISSUE_TITLE#'[TEST] '}
+
+          # Reuse an open PR for this branch if one already exists (idempotent).
+          PR_URL=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+            --json url --jq '.[0].url // empty')
+          if [ -z "$PR_URL" ]; then
+            {
+              echo "Automated implementation of the feature, with tests and auditable test evidence."
+              echo
+              echo "- Design ticket: #${DESIGN_ISSUE}"
+              echo "- Implementation ticket: #${IMPL_ISSUE}"
+              echo "- Test ticket: #${TEST_ISSUE}"
+            } > pr-body.md
+            PR_URL=$(gh pr create --repo "$REPO" --base master --head "$BRANCH" \
+              --title "[AI] ${DESIGN_TITLE}" --body-file pr-body.md)
+            rm -f pr-body.md
+          fi
+          echo "PR: $PR_URL"
+
+          # Open the [MERGE] tracking ticket referencing everything.
+          {
+            echo "Feature complete and ready to merge."
+            echo
+            echo "- Design ticket: #${DESIGN_ISSUE}"
+            echo "- Implementation ticket: #${IMPL_ISSUE}"
+            echo "- Test ticket: #${TEST_ISSUE}"
+            echo "- Pull request: ${PR_URL}"
+          } > merge-body.md
+          MERGE_URL=$(gh issue create --repo "$REPO" \
+            --title "[MERGE] ${DESIGN_TITLE}" --body-file merge-body.md)
+          rm -f merge-body.md
+          echo "Merge ticket: $MERGE_URL"
+
+          # Close the loop on the [TEST] ticket.
+          gh issue comment "$TEST_ISSUE" --repo "$REPO" \
+            --body "Finalized. Pull request: ${PR_URL} · Merge ticket: ${MERGE_URL}"

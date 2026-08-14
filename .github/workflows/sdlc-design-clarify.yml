@@ -208,15 +208,14 @@ jobs:
             rm -f "${SPEC_DIR}/clarifications-round-${ROUND}.md"
           else
             # Open the implementation ticket first so the closing comment can
-            # reference it. It carries the 'feature' label and a hidden marker
-            # that the build workflow uses to locate the feature branch.
+            # reference it. It is identified downstream by its [IMPL] title
+            # prefix (no label); a hidden marker carries the feature branch.
             {
               cat "${SPEC_DIR}/plan.md"
               printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
             } > impl-body.md
             IMPL_URL=$(gh issue create --repo "$REPO" \
               --title "[IMPL] ${ISSUE_TITLE}" \
-              --label feature \
               --body-file impl-body.md)
             rm -f impl-body.md
             echo "Implementation ticket: $IMPL_URL"

@@ -10,13 +10,14 @@ concurrency:
 
 jobs:
   test:
-    # React to a human comment on an open, feature-labelled testing ticket
-    # (title starts with [TEST]); ignore PRs and the agent's own bot comments.
+    # React to a human edge-case comment on an open [TEST] ticket. A comment
+    # containing /ready is the finalize signal handled by SDLC · Merge, so it
+    # is excluded here. Ignore PRs and our own bot comments.
     if: >
       !github.event.issue.pull_request &&
       github.event.issue.state == 'open' &&
-      contains(github.event.issue.labels.*.name, 'feature') &&
       startsWith(github.event.issue.title, '[TEST]') &&
+      !contains(github.event.comment.body, '/ready') &&
       github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     container:
