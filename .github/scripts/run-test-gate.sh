@@ -19,6 +19,10 @@
 SPEC_DIR="$1"
 LABEL="$2"
 MAX_ATTEMPTS="${MAX_GATE_ATTEMPTS:-3}"
+# Wall-clock cap for each in-loop remediation fix call (seconds). Generous
+# headroom over a real fix (~5-6 min) so it never cuts legitimate work — it
+# only kills a genuinely hung call. The first implement call is NOT capped.
+FIX_TIMEOUT="${GATE_FIX_TIMEOUT:-900}"
 OUT="$SPEC_DIR/test-results/$LABEL"
 mkdir -p "$OUT"
 XML="$PWD/$OUT/junit.xml"
@@ -98,14 +102,17 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     break
   fi
   if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
-    echo "Gate failed; asking the LLM to fix and re-running."
+    echo "Gate failed; asking the LLM to fix (timeout ${FIX_TIMEOUT}s) and re-running."
     FAILTAIL=$(tail -80 "$LOG")
-    copilot --allow-all-tools -p "The deterministic test run for package \
-    ${PKG_NAME} (scope: ${SCOPE}) failed, even though you reported it green. \
-    Fix the code or the tests so these tests pass. Do not weaken or delete \
-    tests to force a pass, and do NOT run git or gh. Failing output (tail):
+    if ! timeout "$FIX_TIMEOUT" copilot --allow-all-tools -p "The deterministic \
+    test run for package ${PKG_NAME} (scope: ${SCOPE}) failed, even though you \
+    reported it green. Fix the code or the tests so these tests pass. Do not \
+    weaken or delete tests to force a pass, and do NOT run git or gh. Failing \
+    output (tail):
 
-    ${FAILTAIL}"
+    ${FAILTAIL}"; then
+      echo "Fix call timed out or errored; re-running the gate anyway."
+    fi
   fi
   attempt=$((attempt + 1))
 done
