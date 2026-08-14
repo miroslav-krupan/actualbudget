@@ -208,7 +208,7 @@ jobs:
           else
             # Open the implementation ticket first so the closing comment can
             # reference it. It carries the 'feature' label and a hidden marker
-            # that the develop workflow uses to locate the feature branch.
+            # that the build workflow uses to locate the feature branch.
             {
               cat "${SPEC_DIR}/plan.md"
               printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"

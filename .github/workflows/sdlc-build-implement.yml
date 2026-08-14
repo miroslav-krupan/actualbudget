@@ -1,4 +1,4 @@
-name: SDLC · Impl · Develop
+name: SDLC · Build · Implement
 
 on:
   issue_comment:
@@ -7,7 +7,7 @@ on:
 # Serialise runs per implementation ticket so two quick dev comments don't
 # race on the same branch.
 concurrency:
-  group: sdlc-impl-${{ github.event.issue.number }}
+  group: sdlc-build-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
