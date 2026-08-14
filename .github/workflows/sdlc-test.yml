@@ -89,17 +89,22 @@ jobs:
           2. Add automated tests in the affected package covering the tester's \
           edge cases, following that package's existing test conventions. Do \
           NOT weaken or delete existing tests.
-          3. Run the affected package's FULL test suite yourself and iterate \
-          up to 3 times: if an edge case reveals a genuine bug, fix the \
-          implementation; if it reveals expected behaviour, adjust the new \
-          test. Repeat until the whole suite passes. For @actual-app/core the \
-          command is 'yarn workspace @actual-app/core test'. Do NOT finish \
-          while any test fails.
+          3. Run the affected package's FULL test suite yourself and keep \
+          iterating until it all passes: if an edge case reveals a genuine \
+          bug, fix the implementation; if it reveals expected behaviour, \
+          adjust the new test. There is no iteration limit; only stop once \
+          every test is green. For @actual-app/core the command is \
+          'yarn workspace @actual-app/core test'. Do NOT finish while any \
+          test fails.
           4. Write a SHORT summary of the tests you added and any findings to \
           ./test-summary.md, starting with the line 'Edge-case tests added'."
 
-      # Deterministic gate: the auditable source of truth.
+      # Deterministic gate: the auditable source of truth. Re-runs the suite
+      # and, on disagreement, feeds the failure back to the LLM (up to
+      # MAX_GATE_ATTEMPTS). Only the Copilot token is present.
       - name: Test gate (run suite + capture evidence)
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: bash .github/scripts/run-test-gate.sh "$SPEC_DIR" "cases-round-${ROUND}"
 
       - name: Publish outcome

@@ -136,11 +136,12 @@ jobs:
           automated tests for the new/changed behaviour in the affected \
           package, following that package's existing test conventions. Honour \
           any final notes in ./dev-comment.md.
-          3. Run the affected package's FULL test suite yourself and iterate: \
-          if anything fails, fix the code or the tests and re-run. Repeat up \
-          to 3 times until the whole suite passes. For @actual-app/core the \
-          command is 'yarn workspace @actual-app/core test'. Do NOT consider \
-          the work finished while any test fails.
+          3. Run the affected package's FULL test suite yourself and keep \
+          iterating — fix the code or the tests and re-run — until the whole \
+          suite passes. There is no iteration limit; only stop once every test \
+          is green. For @actual-app/core the command is \
+          'yarn workspace @actual-app/core test'. Do NOT consider the work \
+          finished while any test fails.
           4. Write a SHORT summary of what you implemented (files changed, key \
           decisions, how to verify) to ./implement-summary.md, starting with \
           the line 'Implementation complete'.
@@ -150,10 +151,14 @@ jobs:
           every automated test."
 
       # Deterministic gate: re-run the affected package's suite and capture
-      # auditable evidence. This — not the LLM — is the source of truth. No
-      # token here; running tests needs none.
+      # auditable evidence. The vitest exit code — not the LLM — is the source
+      # of truth. If the run disagrees with the LLM it feeds the failure back
+      # and re-runs (up to MAX_GATE_ATTEMPTS). Only the Copilot token is
+      # present, so the in-loop fix can't touch the repo.
       - name: Test gate (run suite + capture evidence)
         if: env.MODE == 'IMPLEMENT'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: bash .github/scripts/run-test-gate.sh "$SPEC_DIR" impl
 
       # gh step: publish the outcome on the IMPL ticket.
