@@ -113,11 +113,11 @@ jobs:
           2. Update ${SPEC_DIR}/spec.md: fold every answered clarification into \
           the spec and REMOVE the corresponding [NEEDS CLARIFICATION] marker. \
           Keep markers only for still-unanswered points.
-          3. Rubber duck (run /rubber-duck) your assessment, but consider ONLY \
-          genuinely business or functional ambiguities. Completely ignore and \
-          do NOT report technical or implementation concerns — the business \
-          analyst will not act on those. Discard any such points from the \
-          critique entirely.
+          3. When assessing whether the answers are sufficient and whether \
+          they introduce any new ambiguities, consider ONLY genuinely business \
+          or functional matters. Completely ignore technical or implementation \
+          concerns — the business analyst will not act on those, so do not \
+          raise or record them anywhere.
 
           Then branch on the situation.
 
