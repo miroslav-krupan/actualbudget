@@ -96,13 +96,14 @@ jobs:
           2. Add automated tests in the affected package covering the tester's \
           edge cases, following that package's existing test conventions. Do \
           NOT weaken or delete existing tests.
-          3. Run the affected package's FULL test suite yourself and keep \
-          iterating until it all passes: if an edge case reveals a genuine \
-          bug, fix the implementation; if it reveals expected behaviour, \
-          adjust the new test. There is no iteration limit; only stop once \
-          every test is green. For @actual-app/core the command is \
-          'yarn workspace @actual-app/core test'. Do NOT finish while any \
-          test fails.
+          3. Run the tests for the AREA you changed — the tests in the same \
+          directory as your new tests — and keep iterating until they pass: if \
+          an edge case reveals a genuine bug, fix the implementation; if it \
+          reveals expected behaviour, adjust the new test. Do NOT run the \
+          entire package suite; scope to the changed directory, e.g. \
+          'yarn workspace @actual-app/web exec vitest run <changed-dir>' \
+          (for @actual-app/core prefix with ENV=node). There is no iteration \
+          limit; only stop once those tests are green.
           4. Write a SHORT summary of the tests you added and any findings to \
           ./test-summary.md, starting with the line 'Edge-case tests added'."
 
