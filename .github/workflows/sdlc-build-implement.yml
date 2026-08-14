@@ -140,14 +140,15 @@ jobs:
           automated tests for the new/changed behaviour in the affected \
           package, following that package's existing test conventions. Honour \
           any final notes in ./dev-comment.md.
-          3. Run the tests for the AREA you changed — your new test file and \
-          the other tests in the same directory — and keep iterating (fix the \
-          code or the tests and re-run) until they pass. Do NOT run the entire \
-          package suite; it is large and slow. Scope to the changed \
-          directory, e.g. \
-          'yarn workspace @actual-app/web exec vitest run <changed-dir>' \
-          (for @actual-app/core prefix with ENV=node). There is no iteration \
-          limit; only stop once those tests are green.
+          3. Verify by running vitest on the ENTIRE directory that contains \
+          your changes — NOT just your own test file — because the automated \
+          gate runs exactly that and will reject you if any sibling test in \
+          that directory fails. Example: 'yarn workspace @actual-app/web exec \
+          vitest run src/components/reports/spreadsheets' (for @actual-app/core \
+          prefix the command with ENV=node). Keep iterating — fix the code or \
+          the tests and re-run the WHOLE directory — until every test in it \
+          passes. Do NOT run the full package suite (too slow), and do NOT \
+          finish while any test in the changed directory fails.
           4. Write a SHORT summary of what you implemented (files changed, key \
           decisions, how to verify) to ./implement-summary.md, starting with \
           the line 'Implementation complete'.
