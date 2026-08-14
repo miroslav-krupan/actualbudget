@@ -13,8 +13,9 @@ env:
 
 jobs:
   clarify:
-    # Only react to a human "/answered" comment on an open, feature-labelled
-    # issue (not a PR, and not the agent's own bot comments).
+    # Only react to a human "/ready" comment on an open design ticket
+    # (feature-labelled, no pipeline prefix). The ticket type — not the
+    # keyword — is what routes /ready to the right phase.
     if: >
       !github.event.issue.pull_request &&
       github.event.issue.state == 'open' &&
@@ -22,7 +23,7 @@ jobs:
       !startsWith(github.event.issue.title, '[IMPL]') &&
       !startsWith(github.event.issue.title, '[TEST]') &&
       github.event.comment.user.type != 'Bot' &&
-      contains(github.event.comment.body, '/answered')
+      contains(github.event.comment.body, '/ready')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest

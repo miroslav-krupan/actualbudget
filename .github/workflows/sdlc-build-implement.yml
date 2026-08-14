@@ -104,12 +104,18 @@ jobs:
 
       # Install deps once (IMPLEMENT only) so the LLM can run the affected
       # package's tests during implementation, and so the deterministic gate
-      # can run them afterwards. ~40s including native builds.
+      # can run them afterwards. ~40s including native builds. Idempotent:
+      # skips if the image (or a cache) already provides node_modules, so a
+      # future devcontainer that preinstalls deps just makes this a no-op.
       - name: Install dependencies
         if: env.MODE == 'IMPLEMENT'
         run: |
-          corepack enable || true
-          yarn install --immutable
+          if [ -d node_modules ] && [ -n "$(ls -A node_modules 2>/dev/null)" ]; then
+            echo "Dependencies already present; skipping install."
+          else
+            corepack enable || true
+            yarn install --immutable
+          fi
 
       # IMPLEMENT: the developer signalled /ready. Build the code the Spec Kit
       # way (tasks -> implement), write tests, and self-verify to green.
