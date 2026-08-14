@@ -1,4 +1,4 @@
-name: AI Agent Demo
+name: SDLC · Design · Specify
 
 on:
   issues:
@@ -92,6 +92,17 @@ jobs:
           [NEEDS CLARIFICATION: ...] markers for every ambiguity — do NOT \
           resolve or assume them. Do not run any git or gh commands."
 
+          # Discover the feature directory Spec Kit created (e.g.
+          # specs/001-fix-rule-stage-value) so later steps write alongside the
+          # spec instead of at the repo root.
+          SPEC_DIR=$(find specs -maxdepth 1 -type d -name '[0-9]*' | sort | tail -1)
+          echo "Spec dir: $SPEC_DIR"
+          echo "SPEC_DIR=$SPEC_DIR" >> "$GITHUB_ENV"
+
+          # issue-context.md was only a handoff file for the LLM; drop it so it
+          # is not committed.
+          rm -f issue-context.md
+
       # Second LLM call: extract + rubber-duck the business clarification
       # questions. Still Copilot-only; no repo access.
       - name: Extract clarification questions (with rubber duck)
@@ -100,10 +111,10 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           copilot --allow-all-tools -p "You are working inside a Spec Kit \
-          enabled repository where a feature spec was just generated under the \
-          specs/ directory. Do the following non-interactively:
+          enabled repository where a feature spec was just generated at \
+          ${SPEC_DIR}/spec.md. Do the following non-interactively:
 
-          1. Locate the newly generated spec.md under specs/.
+          1. Read the spec at ${SPEC_DIR}/spec.md.
           2. Build a list of clarification questions that are STRICTLY \
           functional or business in nature. Source them from BOTH (a) the \
           [NEEDS CLARIFICATION] markers in the spec AND (b) any additional \
@@ -116,14 +127,16 @@ jobs:
           your list based on the critique.
           4. You MUST NOT answer the questions, MUST NOT assume answers, and \
           MUST NOT run the interactive /speckit.clarify loop.
-          5. Write the final result as JSON to ./clarifications.json using this \
-          schema: {\"issue\": ${ISSUE_NUMBER}, \"questions\": [{\"id\": \"Q1\", \
-          \"question\": \"...\", \"rationale\": \"why this matters for the \
-          business behavior\"}]}. If there are no business clarifications, \
-          write {\"issue\": ${ISSUE_NUMBER}, \"questions\": []}.
+          5. Write the final result as JSON to \
+          ${SPEC_DIR}/clarifications-round-1.json using this schema: \
+          {\"issue\": ${ISSUE_NUMBER}, \"round\": 1, \"questions\": \
+          [{\"id\": \"Q1\", \"question\": \"...\", \"rationale\": \"why this \
+          matters for the business behavior\"}]}. If there are no business \
+          clarifications, write {\"issue\": ${ISSUE_NUMBER}, \"round\": 1, \
+          \"questions\": []}.
           6. Also write a human-readable Markdown comment body to \
-          ./clarifications.md. Start it with the line \
-          '🤖 Spec Kit — business clarification questions'. If there are \
+          ${SPEC_DIR}/clarifications-round-1.md. Start it with the line \
+          'Spec Kit — business clarification questions'. If there are \
           questions, list them as a numbered list including each rationale; if \
           there are none, state that no business clarifications are needed.
 
@@ -137,7 +150,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
-            --body-file ./clarifications.md
+            --body-file "${SPEC_DIR}/clarifications-round-1.md"
+          # The rendered Markdown is scratch — the .json is the committed source
+          # of truth, so drop the .md before the commit step.
+          rm -f "${SPEC_DIR}/clarifications-round-1.md"
 
       - name: Commit and push spec artifacts
         env:

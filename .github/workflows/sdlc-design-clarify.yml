@@ -1,0 +1,223 @@
+name: SDLC · Design · Clarify
+
+on:
+  issue_comment:
+    types: [created]
+
+# Total number of clarification rounds allowed, INCLUDING the initial round
+# asked by "SDLC · Design · Specify". When the next round would exceed this,
+# the agent stops asking and finalizes the spec with documented assumptions.
+# Bump this single value to allow more rounds.
+env:
+  MAX_ROUNDS: 1
+
+jobs:
+  clarify:
+    # Only react to a human "/answered" comment on an open, feature-labelled
+    # issue (not a PR, and not the agent's own bot comments).
+    if: >
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'feature') &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(github.event.comment.body, '/answered')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
+      # Run as root: the image's default 'vscode' user cannot write the
+      # runner's root-owned dirs (breaks checkout). The image ENV PATH already
+      # exposes specify, copilot, and node.
+      options: --user root
+
+    permissions:
+      issues: write
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trust workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out the issue branch
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          # Re-derive the same branch name the Specify workflow created.
+          slug=$(echo "$ISSUE_TITLE" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-50 | sed -E 's/-+$//')
+          BRANCH="issue-${ISSUE_NUMBER}-${slug}"
+          echo "Branch: $BRANCH"
+
+          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Design branch $BRANCH not found. Run the Specify phase first."
+            exit 1
+          fi
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+      - name: Determine spec dir and round
+        run: |
+          SPEC_DIR=$(find specs -maxdepth 1 -type d -name '[0-9]*' | sort | tail -1)
+          if [ -z "$SPEC_DIR" ]; then
+            echo "::error::No spec directory found under specs/."
+            exit 1
+          fi
+          # Rounds already asked = number of committed round files.
+          EXISTING=$(find "$SPEC_DIR" -maxdepth 1 -name 'clarifications-round-*.json' | wc -l | tr -d ' ')
+          ROUND=$((EXISTING + 1))
+          if [ "$ROUND" -gt "$MAX_ROUNDS" ]; then FINAL=true; else FINAL=false; fi
+          echo "SPEC_DIR=$SPEC_DIR"; echo "EXISTING=$EXISTING"; echo "ROUND=$ROUND"; echo "FINAL=$FINAL"
+          {
+            echo "SPEC_DIR=$SPEC_DIR"
+            echo "EXISTING=$EXISTING"
+            echo "ROUND=$ROUND"
+            echo "FINAL=$FINAL"
+          } >> "$GITHUB_ENV"
+
+      # gh step: fetch the issue thread (body + all comments) for the LLM.
+      - name: Fetch issue discussion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue view "$ISSUE_NUMBER" --repo "$REPO" --comments > answers-thread.md
+
+      # LLM call: fold answers into the spec, then either finalize (with an
+      # implementation plan + closing summary) or emit the next round of
+      # questions. Copilot-only; no repo access.
+      - name: Analyze answers and decide (with rubber duck)
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository during the design clarification phase for GitHub \
+          issue #${ISSUE_NUMBER}. Context files:
+          - Spec: ${SPEC_DIR}/spec.md
+          - Previously asked questions (round ${EXISTING}): \
+          ${SPEC_DIR}/clarifications-round-${EXISTING}.json
+          - The issue discussion including the BA's latest answers: \
+          ./answers-thread.md
+
+          Work non-interactively and do NOT run git or gh. Steps:
+
+          1. Read all three files. For each previously asked question, decide \
+          whether the BA's answers in the thread fully answer it.
+          2. Update ${SPEC_DIR}/spec.md: fold every answered clarification into \
+          the spec and REMOVE the corresponding [NEEDS CLARIFICATION] marker. \
+          Keep markers only for still-unanswered points.
+          3. Rubber duck (run /rubber-duck) your assessment of whether the \
+          answers are sufficient and whether they introduce new business \
+          ambiguities.
+
+          Then branch on the situation.
+
+          IF this is the final round (FINAL=${FINAL}):
+          - Do NOT ask further questions. Resolve every remaining ambiguity \
+          with a reasonable, explicitly documented assumption. In spec.md, \
+          replace each remaining [NEEDS CLARIFICATION: X] with the chosen \
+          assumption and add an 'Assumptions' section listing them. No \
+          [NEEDS CLARIFICATION] markers may remain.
+          - Write 'COMPLETE' to ./clarification-status.txt.
+          - Write a closing summary to ./closing-summary.md starting with the \
+          line 'Design clarification complete'. State that the maximum \
+          number of clarification rounds was reached and remaining questions \
+          were resolved via documented assumptions (summarize them briefly).
+
+          ELSE (not the final round):
+          IF all previous questions are fully answered AND you find no new \
+          business ambiguities:
+          - Write 'COMPLETE' to ./clarification-status.txt and produce \
+          ./closing-summary.md as above, except the closing summary should \
+          state that all clarification questions were answered.
+          ELSE (some questions remain OR new business questions arise):
+          - Write 'NEEDS_MORE' to ./clarification-status.txt.
+          - Write the outstanding/new STRICTLY business/functional questions as \
+          JSON to ${SPEC_DIR}/clarifications-round-${ROUND}.json using schema \
+          {\"issue\": ${ISSUE_NUMBER}, \"round\": ${ROUND}, \"questions\": \
+          [{\"id\": \"Q1\", \"question\": \"...\", \"rationale\": \"...\"}]}.
+          - Also write a human-readable comment body to \
+          ${SPEC_DIR}/clarifications-round-${ROUND}.md starting with the line \
+          'Spec Kit — business clarification questions (round ${ROUND})', as \
+          a numbered list with rationales."
+
+          # Expose the decision to later steps (gates the plan step below).
+          echo "STATUS=$(tr -d '[:space:]' < clarification-status.txt)" >> "$GITHUB_ENV"
+
+      # When the design is COMPLETE, generate the implementation plan the Spec
+      # Kit way (/speckit.plan) into the spec dir. Copilot-only; no repo access.
+      - name: Generate implementation plan (speckit.plan)
+        if: env.STATUS == 'COMPLETE'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository. The feature spec at ${SPEC_DIR}/spec.md is now \
+          finalized. Generate the implementation plan by running the \
+          /speckit.plan slash command for the current feature. Work fully \
+          non-interactively: do not ask questions and do not start an \
+          interactive session. After the plan is generated, append a \
+          '## References' section to ${SPEC_DIR}/plan.md linking the design \
+          issue (#${ISSUE_NUMBER}), the branch (${BRANCH}), and the spec \
+          (${SPEC_DIR}/spec.md). Do not run any git or gh commands."
+
+      # gh step: publish the outcome. Either the next round of questions, or an
+      # implementation ticket plus a closing comment on the design ticket.
+      - name: Publish outcome
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          STATUS=$(cat clarification-status.txt | tr -d '[:space:]')
+          echo "Status: $STATUS"
+          echo "STATUS=$STATUS" >> "$GITHUB_ENV"
+
+          if [ "$STATUS" = "NEEDS_MORE" ]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+              --body-file "${SPEC_DIR}/clarifications-round-${ROUND}.md"
+            rm -f "${SPEC_DIR}/clarifications-round-${ROUND}.md"
+          else
+            # Open the implementation ticket first so the closing comment can
+            # reference it. No labels, per design.
+            IMPL_URL=$(gh issue create --repo "$REPO" \
+              --title "[IMPL] ${ISSUE_TITLE}" \
+              --body-file "${SPEC_DIR}/plan.md")
+            echo "Implementation ticket: $IMPL_URL"
+            printf '\n\nImplementation ticket: %s\n' "$IMPL_URL" >> ./closing-summary.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+              --body-file ./closing-summary.md
+          fi
+
+      - name: Commit and push updated design artifacts
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "miroslav-krupan"
+          git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
+
+          # Drop all scratch handoff files so only spec, plan, and round JSON
+          # persist (plan.md is generated by /speckit.plan and kept).
+          rm -f answers-thread.md clarification-status.txt closing-summary.md
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            if [ "$STATUS" = "NEEDS_MORE" ]; then
+              MSG="[AI] Add clarification round ${ROUND} for issue #${ISSUE_NUMBER}"
+            else
+              MSG="[AI] Finalize specification for issue #${ISSUE_NUMBER}"
+            fi
+            git commit -m "$MSG"
+            git push -u origin "$BRANCH"
+          fi
