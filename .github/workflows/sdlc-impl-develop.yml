@@ -1,0 +1,175 @@
+name: SDLC · Impl · Develop
+
+on:
+  issue_comment:
+    types: [created]
+
+# Serialise runs per implementation ticket so two quick dev comments don't
+# race on the same branch.
+concurrency:
+  group: sdlc-impl-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  develop:
+    # React to a human comment on an open, feature-labelled implementation
+    # ticket (title starts with [IMPL]); ignore PRs and the agent's own
+    # bot comments.
+    if: >
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'feature') &&
+      startsWith(github.event.issue.title, '[IMPL]') &&
+      github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
+      # Run as root: the image's default 'vscode' user cannot write the
+      # runner's root-owned dirs (breaks checkout). The image ENV PATH already
+      # exposes specify, copilot, and node.
+      options: --user root
+
+    permissions:
+      issues: write
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trust workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The feature branch name is embedded as a hidden marker in the IMPL
+      # ticket body: <!-- feature-branch: issue-N-... -->. Parse it from the
+      # event payload (injection-safe: env var, parsed not executed).
+      - name: Check out the feature branch
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          BRANCH=$(printf '%s' "$ISSUE_BODY" \
+            | sed -nE 's/.*feature-branch: ([^ ]+) -->.*/\1/p' | head -1)
+          if [ -z "$BRANCH" ]; then
+            echo "::error::feature-branch marker not found in the IMPL ticket body."
+            exit 1
+          fi
+          echo "Feature branch: $BRANCH"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+      - name: Determine spec dir and mode
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          SPEC_DIR=$(find specs -maxdepth 1 -type d -name '[0-9]*' | sort | tail -1)
+          if [ -z "$SPEC_DIR" ]; then
+            echo "::error::No spec directory found under specs/."
+            exit 1
+          fi
+          # "/ready" anywhere in the comment => implement; otherwise refine.
+          if printf '%s' "$COMMENT_BODY" | grep -q '/ready'; then
+            MODE=IMPLEMENT
+          else
+            MODE=REFINE
+          fi
+          # Hand the comment to the LLM via a file (injection-safe).
+          printf '%s' "$COMMENT_BODY" > dev-comment.md
+          echo "SPEC_DIR=$SPEC_DIR"; echo "MODE=$MODE"
+          { echo "SPEC_DIR=$SPEC_DIR"; echo "MODE=$MODE"; } >> "$GITHUB_ENV"
+
+      # REFINE: fold the developer's feedback into the existing plan (do not
+      # regenerate it). Copilot-only; no repo access.
+      - name: Refine plan from feedback
+        if: env.MODE == 'REFINE'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository on the feature branch for implementation ticket \
+          #${ISSUE_NUMBER}. A developer left feedback in ./dev-comment.md, and \
+          may also have committed changes to this branch. Work \
+          non-interactively and do NOT run git or gh:
+
+          1. Read ./dev-comment.md and review any recent changes or files on \
+          this branch relevant to the feedback.
+          2. Update the implementation plan at ${SPEC_DIR}/plan.md to \
+          incorporate the developer's feedback. Edit the existing plan in \
+          place — do NOT regenerate it from scratch, and preserve the \
+          developer's intent and any manual edits. If the feedback changes \
+          intended behaviour, also update ${SPEC_DIR}/spec.md. Keep the \
+          '## References' section of plan.md intact.
+          3. Write a SHORT summary of exactly what you changed (a few bullet \
+          points, do not restate the whole plan) to ./refine-summary.md, \
+          starting with the line 'Plan updated from developer feedback'."
+
+      # IMPLEMENT: the developer signalled /ready. Build the code the Spec Kit
+      # way (tasks -> implement). Copilot-only; no repo access.
+      - name: Implement feature
+        if: env.MODE == 'IMPLEMENT'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          copilot --allow-all-tools -p "You are working inside a Spec Kit \
+          enabled repository on the feature branch for implementation ticket \
+          #${ISSUE_NUMBER}. The plan is at ${SPEC_DIR}/plan.md and the spec at \
+          ${SPEC_DIR}/spec.md. The developer signalled readiness to implement \
+          (final notes, if any, are in ./dev-comment.md). Work \
+          non-interactively and do NOT run git or gh:
+
+          1. Generate the task breakdown by running the /speckit.tasks slash \
+          command for the current feature.
+          2. Implement the feature by running the /speckit.implement slash \
+          command, making the actual code changes the plan describes and \
+          honouring any final notes in ./dev-comment.md.
+          3. Write a SHORT summary of what you implemented (files changed, key \
+          decisions, and how to verify) to ./implement-summary.md, starting \
+          with the line 'Implementation complete'."
+
+      # gh step: publish the outcome on the IMPL ticket.
+      - name: Publish outcome
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$MODE" = "REFINE" ]; then
+            # Keep the IMPL body in sync with the current plan, re-appending
+            # the hidden branch marker so future runs can still find it.
+            {
+              cat "${SPEC_DIR}/plan.md"
+              printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
+            } > impl-body.md
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --body-file impl-body.md
+            rm -f impl-body.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+              --body-file ./refine-summary.md
+          else
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+              --body-file ./implement-summary.md
+          fi
+
+      - name: Commit and push
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "miroslav-krupan"
+          git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
+
+          # Drop scratch handoff files so only real artifacts persist.
+          rm -f dev-comment.md refine-summary.md implement-summary.md
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            if [ "$MODE" = "IMPLEMENT" ]; then
+              MSG="[AI] Implement feature for ticket #${ISSUE_NUMBER}"
+            else
+              MSG="[AI] Update implementation plan from feedback for ticket #${ISSUE_NUMBER}"
+            fi
+            git commit -m "$MSG"
+            git push -u origin "$BRANCH"
+          fi

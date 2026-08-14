@@ -19,6 +19,7 @@ jobs:
       !github.event.issue.pull_request &&
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'feature') &&
+      !startsWith(github.event.issue.title, '[IMPL]') &&
       github.event.comment.user.type != 'Bot' &&
       contains(github.event.comment.body, '/answered')
     runs-on: ubuntu-latest
@@ -206,10 +207,17 @@ jobs:
             rm -f "${SPEC_DIR}/clarifications-round-${ROUND}.md"
           else
             # Open the implementation ticket first so the closing comment can
-            # reference it. No labels, per design.
+            # reference it. It carries the 'feature' label and a hidden marker
+            # that the develop workflow uses to locate the feature branch.
+            {
+              cat "${SPEC_DIR}/plan.md"
+              printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
+            } > impl-body.md
             IMPL_URL=$(gh issue create --repo "$REPO" \
               --title "[IMPL] ${ISSUE_TITLE}" \
-              --body-file "${SPEC_DIR}/plan.md")
+              --label feature \
+              --body-file impl-body.md)
+            rm -f impl-body.md
             echo "Implementation ticket: $IMPL_URL"
             printf '\n\nImplementation ticket: %s\n' "$IMPL_URL" >> ./closing-summary.md
             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \

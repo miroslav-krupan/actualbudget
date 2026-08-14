@@ -6,7 +6,11 @@ on:
 
 jobs:
   specify-ask-questions:
-    if: github.event.label.name == 'feature'
+    # React to the 'feature' label, but never to an implementation ticket
+    # (those carry the same label but their title starts with [IMPL]).
+    if: >
+      github.event.label.name == 'feature' &&
+      !startsWith(github.event.issue.title, '[IMPL]')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/bugrasan/devcontainer-base-ai/base:latest
