@@ -1,0 +1,31 @@
+{
+  "issue": 6,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "For a transfer where one or both accounts are off-budget/tracking accounts or otherwise excluded from a given net worth report, should the report continue applying its existing account-inclusion/exclusion rules (even if that means the transfer is not shown as net-worth-neutral in that report), or should this fix force such transfers to always appear neutral regardless of those exclusion rules?",
+      "rationale": "This is the FR-007 [NEEDS CLARIFICATION] marker. It determines whether the fix overrides existing account-inclusion behavior or must respect it, which directly affects what users see for on/off-budget transfers."
+    },
+    {
+      "id": "Q2",
+      "question": "When a transfer's two legs are dated differently (e.g., 7/31 and 8/1), what single date should the aggregate net worth graph treat the transfer as taking effect on — the earlier leg's date, the later leg's date, or some other rule — given that each account's own balance history must still reflect its own leg's date?",
+      "rationale": "FR-001 and FR-003 can otherwise conflict: if each account's balance changes on its own date, a straightforward sum of account balances will still show a temporary swing between the two dates unless a business rule defines which date 'counts' for the combined total. Without this decision, 'net-worth-neutral regardless of leg dates' has no unambiguous, implementable behavior."
+    },
+    {
+      "id": "Q3",
+      "question": "If a user's selected report/graph date range includes only one leg of a mismatched-date transfer (the other leg falls outside the visible range), should the visible leg still be treated as neutral (offset by the leg outside the range), or should it show as a normal balance change within that range?",
+      "rationale": "This is a real business ambiguity raised in the spec's edge cases (first/last transaction in range) and affects what users see when viewing a partial date range that only captures one side of a split transfer."
+    },
+    {
+      "id": "Q4",
+      "question": "For linked transfers where the two legs are not exactly equal in amount (e.g., due to a transfer fee or currency conversion), should the net worth graph suppress only the matched/transferred principal and still show the fee or conversion difference as a real net worth change, or should the entire transfer be treated as fully neutral regardless of any amount mismatch?",
+      "rationale": "The spec assumes transfers have no net effect on wealth, but real transfers can carry fees or currency differences that are legitimate gains/losses; the fix should not accidentally hide real changes in net worth."
+    },
+    {
+      "id": "Q5",
+      "question": "Since this fix is expected to apply retroactively and change historical net worth graph values for existing data, does this require any user-facing notice (e.g., release note, in-app message) that past graphs may look different after the update, or is silently recalculating historical results on next view acceptable?",
+      "rationale": "The spec's Assumptions state the fix applies retroactively to existing data; this question clarifies whether users need to be informed that previously seen graph values will change, which is a product/communications decision, not an implementation detail."
+    }
+  ]
+}
