@@ -67,7 +67,7 @@ jobs:
             echo "::error::No spec directory found under specs/."
             exit 1
           fi
-          EXISTING=$(find "$SPEC_DIR/test-results" -maxdepth 1 -type d -name 'cases-round-*' 2>/dev/null | wc -l | tr -d ' ')
+          EXISTING=$(find "$SPEC_DIR/test-evidence" -maxdepth 1 -type d -name 'cases-round-*' 2>/dev/null | wc -l | tr -d ' ')
           ROUND=$((EXISTING + 1))
           # Hand the tester's edge cases to the LLM via a file (injection-safe).
           printf '%s' "$COMMENT_BODY" > edge-cases.md

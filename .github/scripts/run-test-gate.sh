@@ -14,7 +14,7 @@
 # Usage: bash run-test-gate.sh <spec_dir> <label>
 # Env:   COPILOT_GITHUB_TOKEN (in-loop fix), MAX_GATE_ATTEMPTS (opt).
 # Emits to $GITHUB_ENV: TESTS_PASSED, TESTS_TOTAL, TESTS_FAILED, TESTS_PKG,
-#         EVIDENCE_DIR. Writes evidence to <spec_dir>/test-results/<label>/.
+#         EVIDENCE_DIR. Writes evidence to <spec_dir>/test-evidence/<label>/.
 
 SPEC_DIR="$1"
 LABEL="$2"
@@ -23,7 +23,7 @@ MAX_ATTEMPTS="${MAX_GATE_ATTEMPTS:-3}"
 # headroom over a real fix (~5-6 min) so it never cuts legitimate work — it
 # only kills a genuinely hung call. The first implement call is NOT capped.
 FIX_TIMEOUT="${GATE_FIX_TIMEOUT:-900}"
-OUT="$SPEC_DIR/test-results/$LABEL"
+OUT="$SPEC_DIR/test-evidence/$LABEL"
 mkdir -p "$OUT"
 # Absolute paths (vitest runs in the package dir via `exec`, so a relative
 # --outputFile would resolve wrong). Robust for relative or absolute SPEC_DIR.

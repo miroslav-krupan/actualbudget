@@ -245,7 +245,7 @@ jobs:
           git config user.email "89612868+miroslav-krupan@users.noreply.github.com"
 
           # Drop scratch handoff files so only real artifacts (code, tests,
-          # and the committed test-results/ evidence) persist.
+          # and the committed test-evidence/ evidence) persist.
           rm -f dev-comment.md refine-summary.md implement-summary.md test-ticket.md
 
           git add -A
