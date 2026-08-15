@@ -205,7 +205,12 @@ jobs:
               cat ./implement-summary.md
               echo
               echo "## Test gate"
-              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo '✅ PASSED' || echo '❌ FAILED') ($((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed in \`$TESTS_PKG\`)"
+              if [ "${TESTS_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+                COUNTS="$((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed"
+              else
+                COUNTS="all scoped tests passed"
+              fi
+              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo "✅ PASSED — $COUNTS" || echo '❌ FAILED') in \`$TESTS_PKG\`"
               echo "- Evidence: $SERVER_URL/$REPO/blob/$BRANCH/$EVIDENCE_DIR/summary.md"
               echo "- Full run: $RUN_URL"
             } > impl-comment.md
