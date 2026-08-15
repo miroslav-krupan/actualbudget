@@ -1,0 +1,31 @@
+{
+  "issue": 12,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Should a transfer be treated as zero net-worth impact only when BOTH linked accounts are included in the user's net worth total, or should it also be treated as zero-impact when one of the two accounts is excluded from net worth tracking (e.g., off-budget, closed, or tracking-only account)?",
+      "rationale": "The spec explicitly flags this as unresolved (User Story 1, Acceptance Scenario 4 and the related Edge Case). The two behaviors are materially different: if only fully-tracked-to-fully-tracked transfers are neutralized, money moving into/out of an excluded account should still show as a real net worth change; if the fix zeroes out all transfers regardless of the other account's tracking status, genuine net worth changes could be incorrectly suppressed. This determines the scope condition for the entire fix, not just an edge case."
+    },
+    {
+      "id": "Q2",
+      "question": "When the two dates of a linked transfer differ (crossing a month or period boundary) and the user's selected report/date range shows only one of those two dates, should net worth still be reported as transfer-neutral for the visible leg, or is it acceptable for the visible portion to show a real balance change because the offsetting leg falls outside the viewed range?",
+      "rationale": "The spec explicitly flags this as unresolved (Edge Cases section). This defines what 'correct' means when a user narrows the graph to a range that only partially contains the transfer, and affects whether the same underlying data can look different depending solely on which date range the user selects."
+    },
+    {
+      "id": "Q3",
+      "question": "For a transfer that involves currency conversion, an exchange-rate spread, or an explicit transfer fee, should the corrected calculation neutralize only the transferred principal (leaving any real conversion difference or fee visible as a genuine net worth change), or should the entire transfer amount be treated as zero-impact regardless of any fee/conversion difference?",
+      "rationale": "Not treating this separately risks either hiding real losses from fees/exchange spread (over-correcting) or leaving artificial gains/losses from the date mismatch bug in place for multi-currency transfers (under-correcting). This is a genuine business question about what counts as 'no actual gain or loss' versus a legitimate cost of the transfer."
+    },
+    {
+      "id": "Q4",
+      "question": "Does this fix's definition of 'transfer' apply only to the two transactions that Actual Budget's transfer feature has explicitly linked to each other, or should it also apply to transactions a user has manually entered as matching (but unlinked) inflow/outflow entries between two of their accounts?",
+      "rationale": "The scope of what qualifies as a 'transfer' for the purposes of the zero-impact rule directly affects which transactions get corrected. Applying the fix only to explicitly-linked transfers is much narrower (and safer) than trying to also detect manually-matched pairs, and getting this wrong could either miss real occurrences of the bug or incorrectly suppress legitimate income/expense transactions that happen to look similar."
+    },
+    {
+      "id": "Q5",
+      "question": "If a transfer's link between its two legs is broken, or one leg of a transfer is missing/deleted (leaving the other side as an orphaned transaction), should that remaining transaction be treated as a normal (non-neutral) transaction affecting net worth, or should some residual transfer-neutral treatment still apply?",
+      "rationale": "Without a clear rule, an unpaired or edited-into-an-orphan transfer leg could either incorrectly continue to be suppressed from net worth calculations (hiding a real balance change) or could unexpectedly reappear as a spike/dip once its pairing is broken, both of which are business-visible behaviors a product owner needs to decide on rather than something engineering should assume."
+    }
+  ]
+}
