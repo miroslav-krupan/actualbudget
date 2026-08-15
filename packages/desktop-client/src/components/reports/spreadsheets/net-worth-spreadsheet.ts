@@ -19,6 +19,135 @@ type Balance = {
   amount: number;
 };
 
+type TransferTransaction = {
+  id: string;
+  transfer_id: string | null;
+  account: string;
+  amount: number;
+  date: string;
+};
+
+/**
+ * Maps a transaction date to the interval "bucket" key used by the
+ * `intervals` array for the given report granularity (matching the
+ * `groupBy` keys produced by the per-account balance query above).
+ */
+function getIntervalKey(
+  date: string,
+  interval: string,
+  firstDayOfWeekIdx: string,
+): string {
+  if (interval === 'Yearly') {
+    return monthUtils.yearFromDate(date);
+  } else if (interval === 'Daily') {
+    return date;
+  } else if (interval === 'Weekly') {
+    return monthUtils.weekFromDate(date, firstDayOfWeekIdx);
+  }
+  // Monthly (default)
+  return monthUtils.getMonth(date);
+}
+
+/**
+ * Resolves a transfer leg's date to an index into `intervals`, clamping
+ * dates before the report's start to the first interval (they are already
+ * folded into the per-account `starting` balance) and dates after the
+ * report's end to just past the last interval (not yet visible/captured).
+ */
+function getIntervalIndexClamped(
+  date: string,
+  intervals: string[],
+  startDate: string,
+  endDate: string,
+  interval: string,
+  firstDayOfWeekIdx: string,
+): number {
+  if (date < startDate) return 0;
+  if (date > endDate) return intervals.length;
+
+  const key = getIntervalKey(date, interval, firstDayOfWeekIdx);
+  const idx = intervals.indexOf(key);
+  return idx === -1 ? intervals.length : idx;
+}
+
+/**
+ * Computes, for each report interval, the net-worth adjustment needed to
+ * neutralize the "in transit" principal of transfers between two of the
+ * user's own included accounts whose legs are dated in different intervals.
+ *
+ * Only the matched/transferred principal (`min(abs(legA), abs(legB))`) is
+ * neutralized; any residual fee/FX delta between unequal legs continues to
+ * show up as a real change (FR-009). A transfer pair only produces an
+ * adjustment when both legs' accounts are included in the report (FR-007)
+ * and both legs are captured by the query, i.e. in-range or folded into the
+ * pre-range starting balance (FR-008).
+ */
+export function computeTransferAdjustments(
+  transferTxns: TransferTransaction[],
+  accountIds: Set<string>,
+  intervals: string[],
+  startDate: string,
+  endDate: string,
+  interval: string = 'Monthly',
+  firstDayOfWeekIdx: string = '0',
+): number[] {
+  const adjustments = new Array(intervals.length).fill(0);
+
+  const pairsById = new Map<string, TransferTransaction[]>();
+  for (const txn of transferTxns) {
+    if (!txn.transfer_id) continue;
+    const key = [txn.id, txn.transfer_id].sort().join('|');
+    const list = pairsById.get(key) ?? [];
+    list.push(txn);
+    pairsById.set(key, list);
+  }
+
+  for (const legs of pairsById.values()) {
+    if (legs.length !== 2) continue;
+    const [a, b] = legs;
+
+    // Both legs' accounts must be included in this report (FR-007).
+    if (!accountIds.has(a.account) || !accountIds.has(b.account)) continue;
+
+    const [earlier, later] = a.date <= b.date ? [a, b] : [b, a];
+    if (earlier.amount === 0) continue;
+
+    const matchedPrincipal = Math.min(Math.abs(a.amount), Math.abs(b.amount));
+    if (matchedPrincipal === 0) continue;
+
+    const earlierIdx = getIntervalIndexClamped(
+      earlier.date,
+      intervals,
+      startDate,
+      endDate,
+      interval,
+      firstDayOfWeekIdx,
+    );
+    const laterIdx = getIntervalIndexClamped(
+      later.date,
+      intervals,
+      startDate,
+      endDate,
+      interval,
+      firstDayOfWeekIdx,
+    );
+
+    if (laterIdx <= earlierIdx) continue;
+
+    const adjustmentAmount = -Math.sign(earlier.amount) * matchedPrincipal;
+
+    for (
+      let idx = earlierIdx;
+      idx < Math.min(laterIdx, intervals.length);
+      idx++
+    ) {
+      adjustments[idx] += adjustmentAmount;
+    }
+  }
+
+  return adjustments;
+}
+
 export function createSpreadsheet(
   start: string,
   end: string,
@@ -169,6 +298,22 @@ export function createSpreadsheet(
       }),
     );
 
+    // Fetch all transfer legs (not scoped to the report's accounts) up to
+    // the report's end date, so we can detect transfer pairs where one leg
+    // belongs to an excluded/off-budget account (FR-007) or falls before
+    // the report's start date (FR-008), and neutralize the matched
+    // principal of any mismatched-date transfer pair for the aggregate
+    // total (FR-001, FR-009).
+    const { data: transferTxns }: { data: TransferTransaction[] } =
+      await aqlQuery(
+        q('transactions')
+          .filter({
+            transfer_id: { $ne: null },
+            date: { $lte: endDate },
+          })
+          .select(['id', 'transfer_id', 'account', 'amount', 'date']),
+      );
+
     setData(
       recalculate(
         data,
@@ -178,12 +323,14 @@ export function createSpreadsheet(
         interval,
         firstDayOfWeekIdx,
         format,
+        transferTxns,
+        new Set(accounts.map(acct => acct.id)),
       ),
     );
   };
 }
 
-function recalculate(
+export function recalculate(
   data: Array<{
     id: string;
     name: string;
@@ -196,6 +343,8 @@ function recalculate(
   interval: string = 'Monthly',
   firstDayOfWeekIdx: string = '0',
   format: (value: unknown, type?: FormatType) => string,
+  transferTxns: TransferTransaction[] = [],
+  accountIds: Set<string> = new Set(data.map(account => account.id)),
 ) {
   // Get intervals using the same pattern as other working spreadsheets
   const intervals =
@@ -223,6 +372,19 @@ function recalculate(
   const priorPeriodNetWorth = data.reduce(
     (sum, account) => sum + account.starting,
     0,
+  );
+
+  // Neutralize the "in transit" principal of mismatched-date transfers
+  // between included accounts for the aggregate total only (FR-001,
+  // FR-003, FR-007, FR-008, FR-009).
+  const transferAdjustments = computeTransferAdjustments(
+    transferTxns,
+    accountIds,
+    intervals,
+    startDate,
+    endDate,
+    interval,
+    firstDayOfWeekIdx,
   );
 
   let hasNegative = false;
@@ -259,6 +421,10 @@ function recalculate(
       }
       total += balance;
     });
+
+    // Apply the transfer-in-transit adjustment to the aggregate total only;
+    // each account's own `balance` above (and `balances` map) is untouched.
+    total += transferAdjustments[idx];
 
     if (total < 0) {
       hasNegative = true;
