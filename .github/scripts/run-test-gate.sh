@@ -139,25 +139,12 @@ else
   FAILED_ENV=$([ "$VERDICT" = true ] && echo 0 || echo 1)
 fi
 
-NEW_LIST=$(node -e '
-const fs=require("fs");
-try {
-  const xml=fs.readFileSync(process.argv[1],"utf8");
-  const news=process.argv.slice(2);
-  const out=[];
-  const re=/<testcase\b[^>]*\bclassname="([^"]*)"[^>]*\bname="([^"]*)"/g;
-  let m;
-  while((m=re.exec(xml))){
-    if(news.some(n=>n.endsWith(m[1])||m[1].endsWith(n))){
-      out.push("- "+m[2].replace(/&gt;/g,">").replace(/&lt;/g,"<").replace(/&amp;/g,"&"));
-    }
-  }
-  console.log(out.join("\n"));
-} catch(e){}
-' "$XML" "${NEW_TESTS[@]}")
+# Reliable list of the new/changed test files (from git — not the XML, which
+# can be flaky to parse). Consumed by the publish step for the ticket body.
+printf '%s\n' "${NEW_TESTS[@]}" > "$OUT/new-tests.txt"
 
 {
-  echo "# Test evidence ($LABEL)"
+  echo "## Test evidence ($LABEL)"
   echo
   echo "- Affected package: \`$PKG_NAME\`"
   echo "- Test scope: \`$SCOPE\`"
@@ -165,8 +152,12 @@ try {
   echo "- Totals: $TOTALS_LINE"
   echo "- Gate attempts used: $attempt of $MAX_ATTEMPTS"
   echo
-  echo "## New tests"
-  if [ -n "$NEW_LIST" ]; then echo "$NEW_LIST"; else echo "_(none detected among changed files)_"; fi
+  echo "### New test files"
+  if [ "${#NEW_TESTS[@]}" -gt 0 ]; then
+    printf -- '- %s\n' "${NEW_TESTS[@]}"
+  else
+    echo "_(none)_"
+  fi
 } > "$OUT/summary.md"
 
 {

@@ -161,10 +161,12 @@ jobs:
           4. Write a SHORT summary of what you implemented (files changed, key \
           decisions, how to verify) to ./implement-summary.md, starting with \
           the line 'Implementation complete'.
-          5. Write ./test-ticket.md: a short description of the change and \
-          concrete steps for a tester to verify it (this becomes a testing \
-          ticket body). Describe what changed and how to test it; do not list \
-          every automated test."
+          5. Write ./test-ticket.md as a SHORT tester brief (this becomes a \
+          testing ticket body): 2-3 sentences on what changed, then a brief \
+          numbered list of the KEY manual verification steps — the main happy \
+          path plus at most 2-3 important edge cases, NOT an exhaustive list \
+          of permutations. Keep the whole file under ~180 words. Do not list \
+          the automated tests."
 
       # Deterministic gate: re-run the affected package's suite and capture
       # auditable evidence. The vitest exit code — not the LLM — is the source
@@ -200,46 +202,55 @@ jobs:
             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
               --body-file ./refine-summary.md
           else
-            # Comment: the LLM's summary + a deterministic test-gate section.
-            {
-              cat ./implement-summary.md
-              echo
-              echo "## Test gate"
-              if [ "${TESTS_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-                COUNTS="$((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed"
-              else
-                COUNTS="all scoped tests passed"
-              fi
-              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo "✅ PASSED — $COUNTS" || echo '❌ FAILED') in \`$TESTS_PKG\`"
-              echo "- Evidence: $SERVER_URL/$REPO/blob/$BRANCH/$EVIDENCE_DIR/summary.md"
-              echo "- Full run: $RUN_URL"
-            } > impl-comment.md
-            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file impl-comment.md
-            rm -f impl-comment.md
+            if [ "${TESTS_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+              COUNTS="$((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed"
+            else
+              COUNTS="all scoped tests passed"
+            fi
 
-            # Only open the [TEST] ticket when the gate is genuinely green.
+            # On green, open the [TEST] ticket FIRST so the IMPL comment can
+            # link it. Concise body: the LLM's tester notes + a short automated
+            # summary (reliable new-test-file list, compact links). No raw
+            # evidence embed (that caused inverted headings).
+            TEST_URL=""
             if [ "$TESTS_PASSED" = "true" ]; then
               DESIGN_TITLE=${ISSUE_TITLE#'[IMPL] '}
-              # The design ticket number is encoded in the branch name
-              # (issue-<N>-slug); the IMPL ticket is the current issue.
               DESIGN_ISSUE=$(printf '%s' "$BRANCH" | sed -nE 's/^issue-([0-9]+)-.*/\1/p')
               {
                 cat ./test-ticket.md
                 echo
-                echo "## Tests run (regression + new)"
-                cat "$EVIDENCE_DIR/summary.md"
+                echo "## Automated tests"
+                echo "Gate: ✅ ${COUNTS} in \`${TESTS_PKG}\`."
                 echo
-                echo "**Evidence:** $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
-                echo "**Full run:** $RUN_URL"
+                echo "New test files:"
+                if [ -s "${EVIDENCE_DIR}/new-tests.txt" ]; then
+                  sed 's#^#- `#; s#$#`#' "${EVIDENCE_DIR}/new-tests.txt"
+                else
+                  echo "- (see the run log)"
+                fi
+                echo
+                echo "[Test evidence]($SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR) · [Full run]($RUN_URL)"
                 printf '\n<!-- feature-branch: %s -->\n' "$BRANCH"
                 printf '<!-- design-issue: %s -->\n' "$DESIGN_ISSUE"
                 printf '<!-- impl-issue: %s -->\n' "$ISSUE_NUMBER"
               } > test-body.md
-              gh issue create --repo "$REPO" \
-                --title "[TEST] $DESIGN_TITLE" \
-                --body-file test-body.md
+              TEST_URL=$(gh issue create --repo "$REPO" \
+                --title "[TEST] $DESIGN_TITLE" --body-file test-body.md)
               rm -f test-body.md
             fi
+
+            # IMPL comment: LLM summary + gate result + link to the [TEST] ticket.
+            {
+              cat ./implement-summary.md
+              echo
+              echo "## Test gate"
+              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo "✅ PASSED — $COUNTS" || echo '❌ FAILED') in \`$TESTS_PKG\`"
+              [ -n "$TEST_URL" ] && echo "- Test ticket: $TEST_URL"
+              echo "- Evidence: $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
+              echo "- Full run: $RUN_URL"
+            } > impl-comment.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file impl-comment.md
+            rm -f impl-comment.md
           fi
 
       - name: Commit and push
