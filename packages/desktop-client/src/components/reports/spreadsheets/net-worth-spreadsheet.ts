@@ -19,6 +19,164 @@ type Balance = {
   amount: number;
 };
 
+// A single transaction row, queried only for the purpose of reconstructing
+// linked transfer pairs (see `findTransferPairs`). `transferId` is `null`/
+// absent for ordinary (non-transfer) transactions.
+type RawTransaction = {
+  id: string;
+  account: string;
+  date: string;
+  amount: number;
+  transferId: string | null;
+};
+
+export type TransferLeg = {
+  account: string;
+  date: string;
+  amount: number;
+};
+
+// A reconstructed pair of linked transfer transactions (matched by shared
+// `transfer_id`). `legB` is `undefined` when no matching leg was found in the
+// queried transaction set (e.g. the other leg's account isn't net-worth
+// tracked, falls outside the viewed date range, or the link is broken/the
+// other leg was deleted) — see FR-007, FR-008, FR-011.
+export type TransferPair = {
+  transferId: string;
+  legA: TransferLeg;
+  legB?: TransferLeg;
+  // Both fields are `true` whenever `legB` is present: the raw transaction
+  // query that feeds `findTransferPairs` only ever selects transactions from
+  // the tracked `accounts` passed into `createSpreadsheet()` and dated within
+  // the current [startDate, endDate] view, so finding both legs here already
+  // guarantees both conditions (FR-007, FR-008).
+  bothLegsTracked: boolean;
+  bothLegsInRange: boolean;
+  matchedAmount: number;
+  residualAmount: number;
+};
+
+// Given the transactions already being queried per account (including
+// `transferId`), reconstruct linked transfer pairs by shared, non-null
+// `transferId`. An orphaned leg (no matching row found) produces a pair with
+// `legB: undefined`, which callers must treat as non-neutralizable (FR-011).
+export function findTransferPairs(
+  transactions: RawTransaction[],
+): TransferPair[] {
+  const byTransferId = new Map<string, RawTransaction[]>();
+  for (const txn of transactions) {
+    if (!txn.transferId) continue;
+    const group = byTransferId.get(txn.transferId);
+    if (group) {
+      group.push(txn);
+    } else {
+      byTransferId.set(txn.transferId, [txn]);
+    }
+  }
+
+  const pairs: TransferPair[] = [];
+  byTransferId.forEach((group, transferId) => {
+    const [first, second] = group;
+    const legA: TransferLeg = {
+      account: first.account,
+      date: first.date,
+      amount: first.amount,
+    };
+    const legB: TransferLeg | undefined = second
+      ? { account: second.account, date: second.date, amount: second.amount }
+      : undefined;
+
+    pairs.push({
+      transferId,
+      legA,
+      legB,
+      bothLegsTracked: legB != null,
+      bothLegsInRange: legB != null,
+      matchedAmount: legB
+        ? Math.min(Math.abs(legA.amount), Math.abs(legB.amount))
+        : 0,
+      residualAmount: legB ? Math.abs(legA.amount) - Math.abs(legB.amount) : 0,
+    });
+  });
+
+  return pairs;
+}
+
+// Maps a transaction date to the same interval key used to bucket account
+// balances (`intervals` in `recalculate()`), so a transfer leg's date can be
+// located within the current graph's interval list.
+function getIntervalKeyForDate(
+  date: string,
+  interval: string,
+  firstDayOfWeekIdx: string,
+): string {
+  if (interval === 'Daily') {
+    return date;
+  } else if (interval === 'Weekly') {
+    return monthUtils.weekFromDate(date, firstDayOfWeekIdx);
+  } else if (interval === 'Yearly') {
+    return date.slice(0, 4);
+  }
+  return monthUtils.getMonth(date);
+}
+
+// Given the reconstructed transfer pairs and the current view's interval
+// list, compute a signed aggregate adjustment per interval so that fully
+// in-range, both-tracked pairs no longer produce a transient swing between
+// the interval containing the earlier leg and the interval containing the
+// later leg (FR-001, FR-003). Untracked-account or partial-range pairs (no
+// `legB`) yield no adjustment. Unequal-amount pairs neutralize only the
+// matched (smaller-magnitude) principal, leaving any fee/conversion
+// difference visible (FR-009). Same-interval pairs produce a zero-width
+// window and therefore no adjustment (FR-006).
+export function computeTransferAdjustments(
+  pairs: TransferPair[],
+  intervals: string[],
+  interval: string,
+  firstDayOfWeekIdx: string,
+): Record<string, number> {
+  const adjustments: Record<string, number> = {};
+
+  for (const pair of pairs) {
+    if (!pair.legB || !pair.bothLegsTracked || !pair.bothLegsInRange) {
+      continue;
+    }
+    if (pair.matchedAmount === 0) {
+      continue;
+    }
+
+    const keyA = getIntervalKeyForDate(
+      pair.legA.date,
+      interval,
+      firstDayOfWeekIdx,
+    );
+    const keyB = getIntervalKeyForDate(
+      pair.legB.date,
+      interval,
+      firstDayOfWeekIdx,
+    );
+    const idxA = intervals.indexOf(keyA);
+    const idxB = intervals.indexOf(keyB);
+    if (idxA === -1 || idxB === -1) continue;
+
+    const earlierIdx = Math.min(idxA, idxB);
+    const laterIdx = Math.max(idxA, idxB);
+    if (earlierIdx === laterIdx) continue;
+
+    const earlierLeg = pair.legA.date <= pair.legB.date ? pair.legA : pair.legB;
+    const sign = Math.sign(earlierLeg.amount);
+    if (sign === 0) continue;
+
+    const adjustmentValue = -sign * pair.matchedAmount;
+    for (let i = earlierIdx; i < laterIdx; i++) {
+      const key = intervals[i];
+      adjustments[key] = (adjustments[key] ?? 0) + adjustmentValue;
+    }
+  }
+
+  return adjustments;
+}
+
 export function createSpreadsheet(
   start: string,
   end: string,
@@ -96,7 +254,11 @@ export function createSpreadsheet(
 
     const data = await Promise.all(
       accounts.map(async acct => {
-        const [starting, balances]: [number, Balance[]] = await Promise.all([
+        const [starting, balances, rawTransactions]: [
+          number,
+          Balance[],
+          Array<Omit<RawTransaction, 'account'>>,
+        ] = await Promise.all([
           aqlQuery(
             q('transactions')
               .filter({
@@ -138,6 +300,26 @@ export function createSpreadsheet(
                 { amount: { $sum: '$amount' } },
               ]),
           ).then(({ data }) => data),
+
+          // Fetched only to reconstruct linked transfer pairs (see
+          // `findTransferPairs`) so cross-period transfers between two
+          // net-worth-tracked accounts no longer distort the aggregate
+          // total/change. Restricted to this account and the current
+          // [startDate, endDate] view, matching the scope of `balances`.
+          aqlQuery(
+            q('transactions')
+              .filter({
+                [conditionsOpKey]: filters,
+              })
+              .filter({
+                account: acct.id,
+                $and: [
+                  { date: { $gte: startDate } },
+                  { date: { $lte: endDate } },
+                ],
+              })
+              .select(['id', 'date', 'amount', { transferId: 'transfer_id' }]),
+          ).then(({ data }) => data),
         ]);
 
         // For weekly intervals, transform dates to week format and properly aggregate
@@ -165,6 +347,10 @@ export function createSpreadsheet(
           name: acct.name,
           balances: processedBalances,
           starting,
+          transactions: rawTransactions.map(txn => ({
+            ...txn,
+            account: acct.id,
+          })),
         };
       }),
     );
@@ -183,12 +369,13 @@ export function createSpreadsheet(
   };
 }
 
-function recalculate(
+export function recalculate(
   data: Array<{
     id: string;
     name: string;
     balances: Record<string, Balance>;
     starting: number;
+    transactions?: RawTransaction[];
   }>,
   startDate: string,
   endDate: string,
@@ -225,6 +412,19 @@ function recalculate(
     0,
   );
 
+  // Neutralize the aggregate (graph-only) effect of linked transfers whose
+  // legs land in different intervals, without altering any account's own
+  // running balance above (FR-001, FR-003, FR-005).
+  const transferPairs = findTransferPairs(
+    data.flatMap(account => account.transactions ?? []),
+  );
+  const transferAdjustments = computeTransferAdjustments(
+    transferPairs,
+    intervals,
+    interval,
+    firstDayOfWeekIdx,
+  );
+
   let hasNegative = false;
   let startNetWorth = 0;
   let endNetWorth = 0;
@@ -259,6 +459,17 @@ function recalculate(
       }
       total += balance;
     });
+
+    // Apply the transfer-neutralization adjustment (if any) for this
+    // interval to the aggregate figures only; per-account `balances` above
+    // are left untouched (FR-005).
+    const adjustment = transferAdjustments[intervalItem] ?? 0;
+    if (adjustment > 0) {
+      assets += adjustment;
+    } else if (adjustment < 0) {
+      debt += -adjustment;
+    }
+    total += adjustment;
 
     if (total < 0) {
       hasNegative = true;

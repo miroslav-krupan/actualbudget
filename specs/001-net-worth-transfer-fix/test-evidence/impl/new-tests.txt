@@ -1,0 +1,1 @@
+packages/desktop-client/src/components/reports/spreadsheets/net-worth-spreadsheet.test.ts
