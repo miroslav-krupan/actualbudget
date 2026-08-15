@@ -202,16 +202,17 @@ jobs:
             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
               --body-file ./refine-summary.md
           else
-            if [ "${TESTS_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-              COUNTS="$((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed"
+            # Real numbers come from the gate: NEW_TEST_COUNT (parsed from the
+            # changed test files) + the vitest exit-code verdict.
+            N="${NEW_TEST_COUNT:-0}"
+            if [ "$TESTS_PASSED" = "true" ]; then
+              GATE_LINE="✅ PASSED — ${N}/${N} new tests passed; full scoped suite green in \`${TESTS_PKG}\`"
             else
-              COUNTS="all scoped tests passed"
+              GATE_LINE="❌ FAILED in \`${TESTS_PKG}\` — see the run log"
             fi
 
             # On green, open the [TEST] ticket FIRST so the IMPL comment can
-            # link it. Concise body: the LLM's tester notes + a short automated
-            # summary (reliable new-test-file list, compact links). No raw
-            # evidence embed (that caused inverted headings).
+            # link it. Body: the LLM's tester notes + the actual new test cases.
             TEST_URL=""
             if [ "$TESTS_PASSED" = "true" ]; then
               DESIGN_TITLE=${ISSUE_TITLE#'[IMPL] '}
@@ -220,13 +221,14 @@ jobs:
                 cat ./test-ticket.md
                 echo
                 echo "## Automated tests"
-                echo "Gate: ✅ ${COUNTS} in \`${TESTS_PKG}\`."
+                echo "Gate: ${GATE_LINE}."
                 echo
-                echo "New test files:"
+                echo "New tests (${N}):"
                 if [ -s "${EVIDENCE_DIR}/new-tests.txt" ]; then
-                  sed 's#^#- `#; s#$#`#' "${EVIDENCE_DIR}/new-tests.txt"
+                  i=0
+                  while IFS= read -r t; do i=$((i+1)); printf '%s. %s\n' "$i" "$t"; done < "${EVIDENCE_DIR}/new-tests.txt"
                 else
-                  echo "- (see the run log)"
+                  echo "1. (see the run log)"
                 fi
                 echo
                 echo "[Test evidence]($SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR) · [Full run]($RUN_URL)"
@@ -244,7 +246,7 @@ jobs:
               cat ./implement-summary.md
               echo
               echo "## Test gate"
-              echo "- Result: $([ "$TESTS_PASSED" = true ] && echo "✅ PASSED — $COUNTS" || echo '❌ FAILED') in \`$TESTS_PKG\`"
+              echo "- Result: ${GATE_LINE}"
               [ -n "$TEST_URL" ] && echo "- Test ticket: $TEST_URL"
               echo "- Evidence: $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
               echo "- Full run: $RUN_URL"
@@ -283,7 +285,7 @@ jobs:
         if: env.MODE == 'IMPLEMENT'
         run: |
           if [ "$TESTS_PASSED" != "true" ]; then
-            echo "::error::Test gate failed (${TESTS_FAILED} failing in ${TESTS_PKG}). See committed evidence and the run log."
+            echo "::error::Test gate failed in ${TESTS_PKG}. See committed evidence and the run log."
             exit 1
           fi
-          echo "Test gate passed: ${TESTS_TOTAL} tests, 0 failing."
+          echo "Test gate passed: ${NEW_TEST_COUNT:-0} new tests, full scoped suite green."

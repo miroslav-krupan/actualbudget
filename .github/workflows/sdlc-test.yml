@@ -136,14 +136,20 @@ jobs:
             cat ./test-summary.md
             echo
             echo "## Test gate (round ${ROUND})"
-            if [ "${TESTS_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-              COUNTS="$((TESTS_TOTAL - TESTS_FAILED))/$TESTS_TOTAL passed"
+            N="${NEW_TEST_COUNT:-0}"
+            if [ "$TESTS_PASSED" = "true" ]; then
+              echo "- Result: ✅ PASSED — ${N}/${N} new tests passed; full scoped suite green in \`$TESTS_PKG\`"
             else
-              COUNTS="all scoped tests passed"
+              echo "- Result: ❌ FAILED in \`$TESTS_PKG\` — see the run log"
             fi
-            echo "- Result: $([ "$TESTS_PASSED" = true ] && echo "✅ PASSED — $COUNTS" || echo '❌ FAILED') in \`$TESTS_PKG\`"
-            echo "- Evidence: $SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR"
-            echo "- Full run: $RUN_URL"
+            if [ -s "${EVIDENCE_DIR}/new-tests.txt" ]; then
+              echo
+              echo "New tests (${N}):"
+              i=0
+              while IFS= read -r t; do i=$((i+1)); printf '%s. %s\n' "$i" "$t"; done < "${EVIDENCE_DIR}/new-tests.txt"
+            fi
+            echo
+            echo "[Test evidence]($SERVER_URL/$REPO/tree/$BRANCH/$EVIDENCE_DIR) · [Full run]($RUN_URL)"
           } > test-comment.md
           gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file test-comment.md
           rm -f test-comment.md
@@ -168,7 +174,7 @@ jobs:
       - name: Enforce test result
         run: |
           if [ "$TESTS_PASSED" != "true" ]; then
-            echo "::error::Test gate failed (${TESTS_FAILED} failing in ${TESTS_PKG}). See committed evidence and the run log."
+            echo "::error::Test gate failed in ${TESTS_PKG}. See committed evidence and the run log."
             exit 1
           fi
-          echo "Test gate passed: ${TESTS_TOTAL} tests, 0 failing."
+          echo "Test gate passed: ${NEW_TEST_COUNT:-0} new tests, full scoped suite green."

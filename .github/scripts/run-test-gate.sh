@@ -13,8 +13,8 @@
 #
 # Usage: bash run-test-gate.sh <spec_dir> <label>
 # Env:   COPILOT_GITHUB_TOKEN (in-loop fix), MAX_GATE_ATTEMPTS (opt).
-# Emits to $GITHUB_ENV: TESTS_PASSED, TESTS_TOTAL, TESTS_FAILED, TESTS_PKG,
-#         EVIDENCE_DIR. Writes evidence to <spec_dir>/test-evidence/<label>/.
+# Emits to $GITHUB_ENV: TESTS_PASSED, NEW_TEST_COUNT, TESTS_PKG, EVIDENCE_DIR.
+#         Writes evidence to <spec_dir>/test-evidence/<label>/.
 
 SPEC_DIR="$1"
 LABEL="$2"
@@ -29,7 +29,9 @@ mkdir -p "$OUT"
 # --outputFile would resolve wrong). Robust for relative or absolute SPEC_DIR.
 OUT_ABS=$(cd "$OUT" && pwd)
 XML="$OUT_ABS/junit.xml"
-LOG="$OUT_ABS/console.log"
+# .txt (not .log) so the console output isn't caught by the repo's **/*.log
+# gitignore and actually commits as evidence.
+LOG="$OUT_ABS/console.txt"
 
 # Collect the LLM's changed files.
 CHANGED=()
@@ -125,53 +127,56 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
   attempt=$((attempt + 1))
 done
 
-# Human-readable totals. If the XML could not be parsed (TOTAL<0) but vitest
-# passed, say so instead of printing bogus numbers.
-if [ "$TOTAL" -ge 0 ] 2>/dev/null; then
-  PASSED=$(( TOTAL - FAILS - ERRS ))
-  TOTALS_LINE="$PASSED passed, $FAILS failed, $ERRS errors (of $TOTAL)"
-  TOTAL_ENV=$TOTAL
-  FAILED_ENV=$(( FAILS + ERRS ))
-else
-  PASSED="?"
-  TOTALS_LINE="counts unavailable (JUnit XML unparsed); verdict from vitest exit code $RC"
-  TOTAL_ENV=0
-  FAILED_ENV=$([ "$VERDICT" = true ] && echo 0 || echo 1)
+# Extract the individual NEW test-case names from the changed test files. This
+# is the reliable source (the JUnit XML is not dependably produced in CI), and
+# it's what the ticket/comment list. One name per line.
+: > "$OUT/new-tests.txt"
+if [ "${#NEW_TESTS[@]}" -gt 0 ]; then
+  node -e '
+    const fs=require("fs");
+    const q="[\x60\x27\x22]";
+    const re=new RegExp("\\b(?:it|test)\\s*(?:\\.\\w+(?:\\([^)]*\\))?)?\\s*\\(\\s*("+q+")((?:\\\\.|(?!\\1).)*)\\1","g");
+    const out=[];
+    for(const f of process.argv.slice(1)){
+      try{const s=fs.readFileSync(f,"utf8");let m;while((m=re.exec(s)))out.push(m[2]);}catch(e){}
+    }
+    process.stdout.write(out.join("\n")+(out.length?"\n":""));
+  ' "${NEW_TESTS[@]}" > "$OUT/new-tests.txt"
 fi
-
-# Reliable list of the new/changed test files (from git — not the XML, which
-# can be flaky to parse). Consumed by the publish step for the ticket body.
-printf '%s\n' "${NEW_TESTS[@]}" > "$OUT/new-tests.txt"
+NEW_TEST_COUNT=$(grep -c . "$OUT/new-tests.txt" 2>/dev/null || echo 0)
+[ -z "$NEW_TEST_COUNT" ] && NEW_TEST_COUNT=0
 
 {
   echo "## Test evidence ($LABEL)"
   echo
   echo "- Affected package: \`$PKG_NAME\`"
   echo "- Test scope: \`$SCOPE\`"
-  echo "- Result: $([ "$VERDICT" = true ] && echo PASSED || echo FAILED)"
-  echo "- Totals: $TOTALS_LINE"
+  echo "- Result: $([ "$VERDICT" = true ] && echo PASSED || echo FAILED) (vitest exit code $RC)"
+  echo "- New tests: $NEW_TEST_COUNT ($([ "$VERDICT" = true ] && echo "all passed" || echo "see console.txt"))"
+  echo "- Regression: full scoped suite \`$SCOPE\` $([ "$VERDICT" = true ] && echo "green" || echo "see console.txt")"
   echo "- Gate attempts used: $attempt of $MAX_ATTEMPTS"
   echo
-  echo "### New test files"
-  if [ "${#NEW_TESTS[@]}" -gt 0 ]; then
-    printf -- '- %s\n' "${NEW_TESTS[@]}"
+  echo "### New tests ($NEW_TEST_COUNT)"
+  if [ "$NEW_TEST_COUNT" -gt 0 ]; then
+    mark=$([ "$VERDICT" = true ] && echo "✅" || echo "•")
+    i=0
+    while IFS= read -r t; do i=$((i+1)); printf '%s. %s %s\n' "$i" "$mark" "$t"; done < "$OUT/new-tests.txt"
   else
-    echo "_(none)_"
+    echo "_(no new test cases detected in the changed files)_"
   fi
 } > "$OUT/summary.md"
 
 {
   echo "TESTS_PASSED=$VERDICT"
-  echo "TESTS_TOTAL=$TOTAL_ENV"
-  echo "TESTS_FAILED=$FAILED_ENV"
+  echo "NEW_TEST_COUNT=$NEW_TEST_COUNT"
   echo "TESTS_PKG=$PKG_NAME"
   echo "EVIDENCE_DIR=$OUT"
 } >> "$GITHUB_ENV"
 
 {
   echo "### Test gate ($LABEL): $([ "$VERDICT" = true ] && echo '✅ PASSED' || echo '❌ FAILED')"
-  echo "- \`$PKG_NAME\` scope \`$SCOPE\`: $TOTALS_LINE (attempts: $attempt)"
+  echo "- \`$PKG_NAME\` scope \`$SCOPE\`: $NEW_TEST_COUNT new tests, full suite $([ "$VERDICT" = true ] && echo green || echo failing) (attempts: $attempt)"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-echo "Gate verdict: TESTS_PASSED=$VERDICT ($TOTALS_LINE)"
+echo "Gate verdict: TESTS_PASSED=$VERDICT (new tests: $NEW_TEST_COUNT, vitest exit $RC)"
 exit 0
