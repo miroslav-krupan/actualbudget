@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-17
 
-**Status**: Draft
+**Status**: Clarified
 
 **Input**: User description: "Issue #32: [Bug]: Some transaction amounts are saved a cent short (e.g. 19.99 becomes 19.98). Certain amounts are stored one cent lower than what the user entered. The clearest example: entering a transaction of 19.99 saves it as 19.98. It doesn't happen for every amount (3.10 and 5.55 are fine), but it is consistent for the ones it affects, so balances and imported totals end up a few cents short over time. It looks like the amount → integer-cents conversion (`amountToInteger` in `packages/loot-core/src/shared/util.ts`) rounds down instead of to the nearest cent. Because 19.99 * 100 is 1998.9999999999998 in floating point, flooring it drops it to 1998 (i.e. 19.98) instead of rounding to 1999 (19.99). Reproduction: add a transaction for 19.99 (or import a file containing 19.99); the stored/displayed amount is 19.98. Expected behaviour: amounts should be rounded to the nearest cent; amountToInteger(19.99) should return 1999, not 1998. Notes: amountToInteger currently has no unit-test coverage, so a regression test should be added alongside the fix."
 
@@ -56,10 +56,10 @@ As a maintainer of the budgeting tool, I want automated tests covering the amoun
 
 ### Edge Cases
 
-- What happens when an entered amount falls exactly halfway between two cent values (e.g., due to floating-point representation, a value effectively at x.xx5)? [NEEDS CLARIFICATION: expected rounding direction for exact halfway/near-halfway cases is not specified - round half up, round half down, or round half to even?]
+- What happens when an entered amount falls exactly halfway between two cent values (e.g., due to floating-point representation, a value effectively at x.xx5)? The amount is rounded half up (to the next higher cent).
 - What happens with negative amounts (e.g., a -19.99 expense) that are affected by the same floating-point conversion issue?
 - What happens with very large amounts or amounts with more than 2 decimal places entered by a user or present in an import file?
-- What happens to transactions and balances that were already saved incorrectly (a cent short) before this fix is applied? [NEEDS CLARIFICATION: should already-stored transaction amounts be corrected/migrated, or does the fix only need to prevent the issue for new entries and imports going forward?]
+- What happens to transactions and balances that were already saved incorrectly (a cent short) before this fix is applied? Existing, previously-saved transactions are left as-is; the fix only prevents the issue for new entries and imports going forward.
 
 ## Requirements *(mandatory)*
 
@@ -70,7 +70,9 @@ As a maintainer of the budgeting tool, I want automated tests covering the amoun
 - **FR-003**: The system MUST continue to produce the same correct integer-cents value for amounts that already convert correctly today (e.g., 3.10, 5.55), so the fix introduces no new discrepancies.
 - **FR-004**: The system MUST apply the corrected rounding behavior consistently to amounts entered manually and amounts brought in through file imports.
 - **FR-005**: The system MUST include automated regression tests for the amount-to-cents conversion covering both previously-affected and previously-unaffected representative values.
-- **FR-006**: The system MUST round amounts consistently for negative values in a way that is symmetric with positive-value rounding (i.e., the magnitude of a negative amount is rounded the same way as the equivalent positive amount). [NEEDS CLARIFICATION: exact rounding rule for exact/near-halfway boundary cases per FR-006's symmetry requirement is not specified]
+- **FR-006**: The system MUST round amounts consistently for negative values in a way that is symmetric with positive-value rounding (i.e., the magnitude of a negative amount is rounded the same way as the equivalent positive amount).
+- **FR-007**: For amounts that fall exactly (or effectively, due to floating-point representation) halfway between two cent values, the system MUST round half up (i.e., round to the next higher cent value; for negative amounts, symmetrically round the magnitude up, per FR-006).
+- **FR-008**: The system MUST NOT modify or migrate the amounts of transactions that were already saved before this fix ships; the corrected rounding behavior applies only to new entries and imports going forward.
 
 ### Key Entities
 
@@ -91,3 +93,5 @@ As a maintainer of the budgeting tool, I want automated tests covering the amoun
 - Standard two-decimal-place currency entry (e.g., "19.99") is the primary supported input format; behavior for currencies with different decimal precision is out of scope unless already supported today.
 - The fix applies to the conversion logic used by both manual transaction entry and file import, since both currently rely on the same underlying conversion behavior.
 - Users have not made manual accounting workarounds to compensate for the existing bug that a fix might disrupt; no explicit backward-compatibility handling for such workarounds is assumed.
+- Confirmed by the business analyst: previously-saved transactions that were affected by the rounding bug are left as-is; the fix only prevents the issue for new entries and imports going forward (no data migration/backfill).
+- Confirmed by the business analyst: exact/near-halfway amounts are rounded half up (to the next higher cent, with negative amounts rounded symmetrically per FR-006).
