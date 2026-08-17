@@ -127,21 +127,32 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
   attempt=$((attempt + 1))
 done
 
-# Extract the individual NEW test-case names from the changed test files. This
-# is the reliable source (the JUnit XML is not dependably produced in CI), and
-# it's what the ticket/comment list. One name per line.
+# Extract the individual NEW test-case names. Only the tests the LLM actually
+# ADDED count — for a modified existing test file we take just the added diff
+# lines, not the whole file (which would wrongly count pre-existing tests). New
+# untracked files contribute their whole content. Reliable source (the JUnit
+# XML is not dependably produced in CI). One name per line.
 : > "$OUT/new-tests.txt"
 if [ "${#NEW_TESTS[@]}" -gt 0 ]; then
+  ADDED=$(mktemp)
+  for f in "${NEW_TESTS[@]}"; do
+    if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      # tracked → only the added ('+') lines of the working-tree diff
+      git diff -- "$f" | grep '^+' | grep -v '^+++' | sed 's/^+//' >> "$ADDED"
+    else
+      # untracked new file → all of it is new
+      cat "$f" >> "$ADDED"
+    fi
+  done
   node -e '
     const fs=require("fs");
     const q="[\x60\x27\x22]";
     const re=new RegExp("\\b(?:it|test)\\s*(?:\\.\\w+(?:\\([^)]*\\))?)?\\s*\\(\\s*("+q+")((?:\\\\.|(?!\\1).)*)\\1","g");
     const out=[];
-    for(const f of process.argv.slice(1)){
-      try{const s=fs.readFileSync(f,"utf8");let m;while((m=re.exec(s)))out.push(m[2]);}catch(e){}
-    }
+    try{const s=fs.readFileSync(process.argv[1],"utf8");let m;while((m=re.exec(s)))out.push(m[2]);}catch(e){}
     process.stdout.write(out.join("\n")+(out.length?"\n":""));
-  ' "${NEW_TESTS[@]}" > "$OUT/new-tests.txt"
+  ' "$ADDED" > "$OUT/new-tests.txt"
+  rm -f "$ADDED"
 fi
 NEW_TEST_COUNT=$(grep -c . "$OUT/new-tests.txt" 2>/dev/null || echo 0)
 [ -z "$NEW_TEST_COUNT" ] && NEW_TEST_COUNT=0
