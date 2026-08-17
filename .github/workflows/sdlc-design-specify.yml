@@ -108,7 +108,7 @@ jobs:
           # is not committed.
           rm -f issue-context.md
 
-      # Second LLM call: extract + rubber-duck the business clarification
+      # Second LLM call: extract the 1-2 key business clarification
       # questions. Still Copilot-only; no repo access.
       - name: Extract clarification questions
         env:
