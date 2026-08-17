@@ -184,6 +184,12 @@ jobs:
           interactive session. Do NOT add any references or links yourself, \
           and do not run any git or gh commands."
 
+          # Spec Kit's plan header lists the feature-directory name as
+          # "**Branch**", which is NOT our actual git branch. Drop that
+          # boilerplate metadata line; the References section below carries the
+          # correct branch and spec links.
+          sed -i '/^\*\*Branch\*\*:/d' "${SPEC_DIR}/plan.md"
+
           # Append the References section deterministically from the workflow
           # context so the links always point at THIS fork (the LLM tends to
           # mis-qualify #N against the upstream repo and to emit broken
