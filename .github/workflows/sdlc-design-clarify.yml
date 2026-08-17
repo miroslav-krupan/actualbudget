@@ -95,7 +95,7 @@ jobs:
       # LLM call: fold answers into the spec, then either finalize (with an
       # implementation plan + closing summary) or emit the next round of
       # questions. Copilot-only; no repo access.
-      - name: Analyze answers and decide (with rubber duck)
+      - name: Analyze answers and decide
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -174,7 +174,12 @@ jobs:
           copilot --allow-all-tools -p "You are working inside a Spec Kit \
           enabled repository. The feature spec at ${SPEC_DIR}/spec.md is now \
           finalized. Generate the implementation plan by running the \
-          /speckit.plan slash command for the current feature. Work fully \
+          /speckit.plan slash command for the current feature. Keep it LEAN \
+          and fast: produce ONLY ${SPEC_DIR}/plan.md (a concise implementation \
+          plan — summary, the files/areas to change, a short step-by-step \
+          approach, and testing notes). Do NOT generate research.md, \
+          data-model.md, quickstart.md, or any contracts/ artifacts — this is \
+          a small, contained change and those are not needed. Work fully \
           non-interactively: do not ask questions and do not start an \
           interactive session. Do NOT add any references or links yourself, \
           and do not run any git or gh commands."
