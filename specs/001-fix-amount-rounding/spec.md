@@ -71,8 +71,8 @@ A developer or maintainer wants assurance that this class of rounding defect can
 
 ### Edge Cases
 
-- What happens for amounts that fall exactly halfway between two cent values (e.g. a raw computed value of x.xx5)? [NEEDS CLARIFICATION: rounding tie-breaking rule not specified — should halves round up, round to nearest even, or round away from zero, and does this differ for negative (expense/outflow) amounts?]
-- How should negative amounts (expenses/outflows, which are common in this system) be rounded when floating-point drift pushes them toward or away from zero?
+- What happens for amounts that fall exactly halfway between two cent values (e.g. a raw computed value of x.xx5)? Resolved: such values round up (toward positive infinity), and this same rule applies regardless of whether the amount is positive or negative.
+- How should negative amounts (expenses/outflows, which are common in this system) be rounded when floating-point drift pushes them toward or away from zero? Resolved: negative amounts follow the same "round up" (toward positive infinity) rule as positive amounts — there is no separate sign-based rule.
 - How does the system handle currencies or contexts that use a different number of decimal places than 2 (e.g. 0 or 3 decimal places), given the conversion function accepts a configurable decimal-places parameter?
 - What happens for amounts at the extreme edges of supported magnitude, where floating-point precision loss could exceed a single cent?
 
@@ -90,7 +90,7 @@ A developer or maintainer wants assurance that this class of rounding defect can
 - **FR-003**: The system MUST continue to correctly convert amounts that were already working correctly (e.g. 3.10, 5.55), producing no regression for those cases.
 - **FR-004**: The system MUST apply the corrected rounding behavior consistently across all entry points that convert decimal amounts into stored integer amounts, including manual transaction entry and file import.
 - **FR-005**: The system MUST have automated regression test coverage for the amount-to-integer-cents conversion, including at minimum the previously-affected example values, so future changes cannot silently reintroduce the defect.
-- **FR-006**: The system MUST round amounts consistently regardless of sign (positive/inflow or negative/outflow amounts) [NEEDS CLARIFICATION: exact tie-breaking/rounding direction for negative values and exact-half values is not specified in the source report].
+- **FR-006**: The system MUST round amounts consistently regardless of sign (positive/inflow or negative/outflow amounts). For values that fall exactly halfway between two cents, the system MUST round up (toward positive infinity), applying this same rule to both positive and negative amounts.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -119,6 +119,6 @@ A developer or maintainer wants assurance that this class of rounding defect can
 -->
 
 - The defect and its fix are scoped to the conversion of a decimal amount into an integer smallest-currency-unit representation, and do not involve changes to how amounts are displayed back to users (decimal formatting), which is assumed to already be correct.
-- "Nearest cent" rounding is assumed to be the desired behavior for the common (non-tie) case, as explicitly stated in the issue's expected behavior; only the tie-breaking rule for exact-half values remains unresolved (see NEEDS CLARIFICATION markers).
+- "Nearest cent" rounding is the desired behavior for the common (non-tie) case, as explicitly stated in the issue's expected behavior. For the halfway-tie case, the BA confirmed values round up (toward positive infinity), and this rule applies uniformly regardless of sign.
 - This fix applies to all currencies/contexts using the shared conversion utility, not just a single currency, since the reported defect is in a shared utility function rather than currency-specific code.
-- Existing transactions already stored with the cent-short defect are out of scope for this feature; this specification covers only the correctness of future conversions, not a data migration/backfill of historical transactions.
+- Existing transactions already stored with the cent-short defect are confirmed out of scope for this feature (the BA decided to leave historical data as-is); this specification covers only the correctness of future conversions, not a data migration/backfill of historical transactions.
