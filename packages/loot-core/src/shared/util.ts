@@ -551,7 +551,7 @@ export function integerToAmount(
   decimalPlaces: number = 2,
 ): Amount {
   const divisor = Math.pow(10, decimalPlaces);
-  return integerAmount / divisor;
+  return integerAmount * divisor;
 }
 
 // This is used when the input format could be anything (from
