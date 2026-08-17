@@ -110,7 +110,7 @@ jobs:
 
       # Second LLM call: extract + rubber-duck the business clarification
       # questions. Still Copilot-only; no repo access.
-      - name: Extract clarification questions (with rubber duck)
+      - name: Extract clarification questions
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -120,26 +120,22 @@ jobs:
           ${SPEC_DIR}/spec.md. Do the following non-interactively:
 
           1. Read the spec at ${SPEC_DIR}/spec.md.
-          2. Build a list of clarification questions that are STRICTLY \
-          functional or business in nature. Source them from BOTH (a) the \
-          [NEEDS CLARIFICATION] markers in the spec AND (b) any additional \
-          business ambiguities you identify. Exclude purely technical or \
-          implementation questions.
-          3. Rubber duck your draft list to get a second opinion: run \
-          /rubber-duck asking it to check whether each question is truly \
-          business/functional, whether any are actually hidden assumptions, \
-          and whether any important business questions are missing. Revise \
-          your list based on the critique.
-          4. You MUST NOT answer the questions, MUST NOT assume answers, and \
+          2. Identify the clarification questions that are STRICTLY functional \
+          or business in nature (from the [NEEDS CLARIFICATION] markers and any \
+          business ambiguity), excluding purely technical or implementation \
+          questions. Then keep ONLY the 1-2 MOST important ones — the \
+          decisions that most change the intended behaviour. Ask at most 2 \
+          questions; prefer 1 if a single decision dominates.
+          3. You MUST NOT answer the questions, MUST NOT assume answers, and \
           MUST NOT run the interactive /speckit.clarify loop.
-          5. Write the final result as JSON to \
+          4. Write the final result as JSON to \
           ${SPEC_DIR}/clarifications-round-1.json using this schema: \
           {\"issue\": ${ISSUE_NUMBER}, \"round\": 1, \"questions\": \
           [{\"id\": \"Q1\", \"question\": \"...\", \"rationale\": \"why this \
           matters for the business behavior\"}]}. If there are no business \
           clarifications, write {\"issue\": ${ISSUE_NUMBER}, \"round\": 1, \
           \"questions\": []}.
-          6. Also write a human-readable Markdown comment body to \
+          5. Also write a human-readable Markdown comment body to \
           ${SPEC_DIR}/clarifications-round-1.md. Start it with the line \
           'Spec Kit — business clarification questions'. If there are \
           questions, list them as a numbered list including each rationale; if \
