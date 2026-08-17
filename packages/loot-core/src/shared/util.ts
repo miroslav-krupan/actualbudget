@@ -543,7 +543,16 @@ export function amountToInteger(
   decimalPlaces: number = 2,
 ): IntegerAmount {
   const multiplier = Math.pow(10, decimalPlaces);
-  return Math.floor(amount * multiplier);
+  const product = amount * multiplier;
+  // Floating-point multiplication can land just under (or over) the intended
+  // integer (e.g. 19.99 * 100 === 1998.9999999999998), which would silently
+  // drop a cent if we floored the result. Snap the product to a safe number
+  // of decimal digits first to remove that drift, then round to the nearest
+  // whole unit. `Math.round` already rounds halfway ties toward positive
+  // infinity for both positive and negative numbers, matching the required
+  // tie-breaking rule.
+  const driftCorrected = Math.round(product * 1e8) / 1e8;
+  return Math.round(driftCorrected);
 }
 
 export function integerToAmount(

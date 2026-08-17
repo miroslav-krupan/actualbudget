@@ -1,0 +1,5 @@
+rounds previously-affected values to the nearest cent instead of flooring
+leaves already-correct values unaffected
+applies the same rounding to negative amounts
+rounds exact halfway ties toward positive infinity
+respects a non-default decimalPlaces parameter

@@ -1,5 +1,6 @@
 import {
   amountToCurrencyInteger,
+  amountToInteger,
   currencyToAmount,
   getNumberFormat,
   integerToCurrencyWithDecimal,
@@ -303,5 +304,40 @@ describe('utility functions', () => {
         expect(decoded).toBeCloseTo(amount, 8);
       },
     );
+  });
+
+  describe('amountToInteger', () => {
+    test('rounds previously-affected values to the nearest cent instead of flooring', () => {
+      // 19.99 * 100 === 1998.9999999999998 in floating point, so a naive
+      // Math.floor drops a cent.
+      expect(amountToInteger(19.99)).toBe(1999);
+      expect(amountToInteger(9.99)).toBe(999);
+      expect(amountToInteger(29.99)).toBe(2999);
+    });
+
+    test('leaves already-correct values unaffected', () => {
+      expect(amountToInteger(3.1)).toBe(310);
+      expect(amountToInteger(5.55)).toBe(555);
+    });
+
+    test('applies the same rounding to negative amounts', () => {
+      expect(amountToInteger(-19.99)).toBe(-1999);
+      expect(amountToInteger(-9.99)).toBe(-999);
+      expect(amountToInteger(-3.1)).toBe(-310);
+    });
+
+    test('rounds exact halfway ties toward positive infinity', () => {
+      // 1.005 * 100 lands on 100.49999999999999 due to floating point drift,
+      // but the true intended value is the halfway case 100.5, which must
+      // round up (toward positive infinity).
+      expect(amountToInteger(1.005)).toBe(101);
+      expect(amountToInteger(-1.005)).toBe(-100);
+    });
+
+    test('respects a non-default decimalPlaces parameter', () => {
+      expect(amountToInteger(19.99, 0)).toBe(20);
+      expect(amountToInteger(1.2345, 3)).toBe(1235);
+      expect(amountToInteger(-1.2345, 3)).toBe(-1234);
+    });
   });
 });
