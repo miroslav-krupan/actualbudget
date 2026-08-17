@@ -42,10 +42,10 @@ A user who has previously entered or imported transactions affected by the round
 
 ### Edge Cases
 
-- What happens when an amount is exactly halfway between two cent values (e.g. due to floating-point representation) — the system should round to the nearest cent using standard "round half away from zero" behavior consistent with how currency amounts are generally rounded. [NEEDS CLARIFICATION: is "round half up" / "round half away from zero" the desired tie-breaking rule for exact halfway cases, or should banker's rounding (round half to even) be used?]
+- What happens when an amount is exactly halfway between two cent values (e.g. due to floating-point representation) — the system rounds to the nearest cent using "round half away from zero" as the tie-breaking rule for exact halfway cases (see Assumptions).
 - How does the system handle negative amounts (e.g. refunds or negative transactions) with the same floating-point rounding issue — the rounding fix must produce correct results for both positive and negative amounts.
-- How does the system handle currencies or locales that use a different number of decimal places (e.g. zero-decimal or three-decimal currencies) — this is assumed out of scope for this fix based on current codebase behavior. [NEEDS CLARIFICATION: does the fix need to account for non-cent-based currency subunits, or is the two-decimal-place (cent) assumption acceptable for all supported currencies?]
-- What happens to transactions and balances that were already stored incorrectly before the fix is deployed — should any migration or recalculation of previously affected historical records be performed? [NEEDS CLARIFICATION: should previously stored transactions affected by this bug be corrected/migrated, or does the fix apply only to amounts entered/imported after the fix ships?]
+- How does the system handle currencies or locales that use a different number of decimal places (e.g. zero-decimal or three-decimal currencies) — confirmed out of scope: the two-decimal-place (cent) assumption is acceptable for all supported currencies.
+- What happens to transactions and balances that were already stored incorrectly before the fix is deployed — confirmed out of scope: the fix applies only to amounts entered or imported after it ships; no migration or recalculation of previously affected historical records will be performed.
 
 ## Requirements *(mandatory)*
 
@@ -72,7 +72,8 @@ A user who has previously entered or imported transactions affected by the round
 
 ## Assumptions
 
-- The amounts involved are expressed in a two-decimal-place (cent-based) currency, consistent with current system behavior; multi-decimal or zero-decimal currency support is not part of this fix unless clarified otherwise.
+- The amounts involved are expressed in a two-decimal-place (cent-based) currency, consistent with current system behavior; the business has confirmed this assumption is acceptable for all supported currencies, so multi-decimal or zero-decimal currency support is not part of this fix.
 - The fix targets the amount-to-integer-cents conversion behavior wherever it is used in the system (manual entry, imports, and any other callers), not a single isolated code path.
 - No changes to the user-facing input format (e.g. decimal separators, currency symbols) are required; only the internal conversion accuracy is in scope.
-- Correcting previously stored, already-affected historical data is out of scope unless explicitly required (see open clarification on migration).
+- Correcting previously stored, already-affected historical data is out of scope: the business has confirmed the fix applies only to amounts entered or imported after it ships; existing balances are not migrated or recalculated.
+- For amounts that fall exactly halfway between two cent values, the fix uses "round half away from zero" as the tie-breaking rule, consistent with conventional currency rounding; this was not explicitly raised with the business and is assumed as the reasonable default since no alternative (e.g. banker's rounding) was requested.
