@@ -1,0 +1,16 @@
+{
+  "issue": 32,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Should transactions that were already saved a cent short before this fix ships be corrected/migrated to their accurate amounts, or should the fix only apply going forward to new entries and imports (leaving existing balances as-is)?",
+      "rationale": "This determines whether the fix needs a data migration/backfill in addition to a code change, and directly affects whether existing users' historical balances remain permanently off by a cent or get retroactively corrected — a major difference in scope, risk, and user-facing impact."
+    },
+    {
+      "id": "Q2",
+      "question": "For amounts that fall exactly (or effectively, due to floating-point representation) halfway between two cents, which rounding rule should be used — round half up, round half down, or round half to even (banker's rounding)?",
+      "rationale": "The choice of halfway-rounding rule changes the exact saved amount for a class of real transaction values, so it needs to be a deliberate business decision rather than an implementation detail, to ensure consistent and expected behavior for users and to correctly scope the regression tests."
+    }
+  ]
+}
