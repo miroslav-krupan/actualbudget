@@ -1,0 +1,5 @@
+rounds amounts affected by floating-point imprecision to the nearest cent
+continues to correctly convert amounts unaffected by the bug
+correctly rounds negative amounts, preserving sign
+rounds exact halfway values away from zero
+generalizes to a non-default number of decimal places

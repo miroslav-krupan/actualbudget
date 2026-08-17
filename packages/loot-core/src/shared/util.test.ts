@@ -1,5 +1,6 @@
 import {
   amountToCurrencyInteger,
+  amountToInteger,
   currencyToAmount,
   getNumberFormat,
   integerToCurrencyWithDecimal,
@@ -303,5 +304,34 @@ describe('utility functions', () => {
         expect(decoded).toBeCloseTo(amount, 8);
       },
     );
+  });
+
+  describe('amountToInteger', () => {
+    test('rounds amounts affected by floating-point imprecision to the nearest cent', () => {
+      // 19.99 * 100 === 1998.9999999999998 in floating point, which used to
+      // floor to 1998 instead of rounding to the correct 1999.
+      expect(amountToInteger(19.99)).toBe(1999);
+    });
+
+    test('continues to correctly convert amounts unaffected by the bug', () => {
+      expect(amountToInteger(3.1)).toBe(310);
+      expect(amountToInteger(5.55)).toBe(555);
+    });
+
+    test('correctly rounds negative amounts, preserving sign', () => {
+      expect(amountToInteger(-19.99)).toBe(-1999);
+      expect(amountToInteger(-3.1)).toBe(-310);
+      expect(amountToInteger(-5.55)).toBe(-555);
+    });
+
+    test('rounds exact halfway values away from zero', () => {
+      expect(amountToInteger(2.505)).toBe(251);
+      expect(amountToInteger(-2.505)).toBe(-251);
+    });
+
+    test('generalizes to a non-default number of decimal places', () => {
+      expect(amountToInteger(19.999, 3)).toBe(19999);
+      expect(amountToInteger(-19.999, 3)).toBe(-19999);
+    });
   });
 });

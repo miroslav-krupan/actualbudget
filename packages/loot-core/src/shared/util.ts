@@ -543,7 +543,13 @@ export function amountToInteger(
   decimalPlaces: number = 2,
 ): IntegerAmount {
   const multiplier = Math.pow(10, decimalPlaces);
-  return Math.floor(amount * multiplier);
+  const scaled = amount * multiplier;
+  // Compensate for floating-point drift (e.g. 19.99 * 100 === 1998.9999999999998)
+  // by rounding to a few extra decimal digits before rounding to the nearest
+  // integer. Round half away from zero so negative amounts round symmetrically
+  // with positive ones (Math.round alone rounds -0.5 toward +Infinity).
+  const corrected = Math.round(scaled * 1e8) / 1e8;
+  return Math.sign(corrected) * Math.round(Math.abs(corrected));
 }
 
 export function integerToAmount(
