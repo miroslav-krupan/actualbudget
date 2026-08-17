@@ -1,0 +1,1 @@
+JUNIT report written to /__w/actualbudget/actualbudget/packages/loot-core/test-results/junit-node.xml

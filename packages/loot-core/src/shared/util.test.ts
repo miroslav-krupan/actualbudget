@@ -1,5 +1,6 @@
 import {
   amountToCurrencyInteger,
+  amountToInteger,
   currencyToAmount,
   getNumberFormat,
   integerToCurrencyWithDecimal,
@@ -268,6 +269,25 @@ describe('utility functions', () => {
     test('no currency argument preserves existing behavior', () => {
       expect(integerToCurrencyWithDecimal(1234)).toBe('12.34');
       expect(integerToCurrencyWithDecimal(1200)).toBe('12.00');
+    });
+  });
+
+  describe('amountToInteger', () => {
+    test('rounds previously-affected values to the nearest cent', () => {
+      // 19.99 * 100 === 1998.9999999999998 in floating point, which used
+      // to be floored to 1998 instead of rounding to 1999.
+      expect(amountToInteger(19.99)).toBe(1999);
+      expect(amountToInteger(-19.99)).toBe(-1999);
+    });
+
+    test('keeps previously-unaffected values correct', () => {
+      expect(amountToInteger(3.1)).toBe(310);
+      expect(amountToInteger(5.55)).toBe(555);
+    });
+
+    test('rounds halfway values up in magnitude', () => {
+      expect(amountToInteger(0.005)).toBe(1);
+      expect(amountToInteger(-0.005)).toBe(-1);
     });
   });
 

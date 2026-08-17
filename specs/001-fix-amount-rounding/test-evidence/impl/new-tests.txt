@@ -1,0 +1,3 @@
+rounds previously-affected values to the nearest cent
+keeps previously-unaffected values correct
+rounds halfway values up in magnitude
