@@ -1,0 +1,16 @@
+{
+  "issue": 27,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Should transactions and account balances that were already stored incorrectly (short by a cent) before this fix ships be corrected/migrated, or does the fix apply only to amounts entered/imported after it ships?",
+      "rationale": "This determines whether users' existing balances remain permanently a few cents short (with only future entries fixed) or whether a data migration/backfill is required to restore historical accuracy. It directly changes the scope of work and the user-visible outcome for existing budgets."
+    },
+    {
+      "id": "Q2",
+      "question": "Is it acceptable to assume all amounts are two-decimal-place (cent-based) currency values, or does the fix need to support currencies/locales with a different number of subunit decimal places (e.g. zero-decimal or three-decimal currencies)?",
+      "rationale": "This defines the boundary of 'correct' for the fix — if any supported currency uses a non-cent subunit, a fix that only handles two-decimal rounding could leave that currency's amounts under- or over-rounded, so the business needs to confirm the scope before the fix is considered complete."
+    }
+  ]
+}
