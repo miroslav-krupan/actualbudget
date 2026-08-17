@@ -1,0 +1,16 @@
+{
+  "issue": 22,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "For amounts that fall exactly halfway between two cents (e.g. a raw computed value of x.xx5), what rounding rule should apply, and should negative (expense/outflow) amounts round the same way as positive amounts, or round symmetrically toward/away from zero?",
+      "rationale": "This directly determines the correct output for FR-006 and the halfway edge case, and affects real transactions (all outflows are typically stored as negative amounts) — choosing the wrong tie-breaking/sign rule would still leave some amounts off by a cent, undermining the fix's core goal."
+    },
+    {
+      "id": "Q2",
+      "question": "Should existing transactions already stored with the cent-short defect be corrected (e.g. via a data migration/backfill), or is this fix intended to apply only to future conversions, leaving historical balances as-is?",
+      "rationale": "The spec currently assumes historical data is out of scope, but users reported balances have already drifted over time — deciding whether to remediate existing data is a business decision that materially changes the feature's scope and user-perceived value."
+    }
+  ]
+}
