@@ -179,10 +179,14 @@ jobs:
           plan — summary, the files/areas to change, a short step-by-step \
           approach, and testing notes). Do NOT generate research.md, \
           data-model.md, quickstart.md, or any contracts/ artifacts — this is \
-          a small, contained change and those are not needed. Work fully \
-          non-interactively: do not ask questions and do not start an \
-          interactive session. Do NOT add any references or links yourself, \
-          and do not run any git or gh commands."
+          a small, contained change and those are not needed. IMPORTANT \
+          formatting: write all prose as single long lines — do NOT hard-wrap \
+          paragraphs at a column limit. This file becomes a GitHub issue body, \
+          and GitHub renders every newline as a line break, so column-wrapped \
+          text displays as an ugly narrow column. Work fully non-interactively: \
+          do not ask questions and do not start an interactive session. Do NOT \
+          add any references or links yourself, and do not run any git or gh \
+          commands."
 
           # Spec Kit's plan header lists the feature-directory name as
           # "**Branch**", which is NOT our actual git branch. Drop that

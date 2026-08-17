@@ -166,7 +166,10 @@ jobs:
           numbered list of the KEY manual verification steps — the main happy \
           path plus at most 2-3 important edge cases, NOT an exhaustive list \
           of permutations. Keep the whole file under ~180 words. Do not list \
-          the automated tests."
+          the automated tests. Do NOT start it with an emoji or a prefix, and \
+          write prose as single long lines (do NOT hard-wrap at a column \
+          limit — it becomes a GitHub issue body and wrapped text renders as a \
+          narrow column)."
 
       # Deterministic gate: re-run the affected package's suite and capture
       # auditable evidence. The vitest exit code — not the LLM — is the source
