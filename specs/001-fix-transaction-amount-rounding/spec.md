@@ -55,9 +55,9 @@ A developer or maintainer needs confidence that the amount-to-integer-cents conv
 
 ### Edge Cases
 
-- What happens when the entered amount is exactly halfway between two cent values due to floating-point representation (e.g. values that resolve to `X.YY5` after multiplication)? [NEEDS CLARIFICATION: tie-breaking rule for rounding exact half-cent boundaries is not specified in the issue — round half up, round half away from zero, or round half to even?]
-- How does the system handle negative amounts (expenses/refunds) that are subject to the same floating-point conversion? Does "round to nearest" mean nearest in absolute value (away from zero) or strictly numerically nearest (toward positive infinity)? [NEEDS CLARIFICATION: rounding direction for negative amounts is not specified]
-- What happens to transactions that were already saved incorrectly (a cent short) before this fix is applied — are existing/historical records corrected, or does the fix only apply to amounts entered or imported going forward? [NEEDS CLARIFICATION: whether already-affected historical transactions must be corrected/migrated, or only new entries going forward, is not specified in the issue]
+- What happens when the entered amount is exactly halfway between two cent values due to floating-point representation (e.g. values that resolve to `X.YY5` after multiplication)? Resolved: ties round half up (toward positive infinity), per BA decision.
+- How does the system handle negative amounts (expenses/refunds) that are subject to the same floating-point conversion? Resolved: the same round-half-up rule applies uniformly regardless of sign — ties round toward positive infinity, not away from zero.
+- What happens to transactions that were already saved incorrectly (a cent short) before this fix is applied — are existing/historical records corrected, or does the fix only apply to amounts entered or imported going forward? Resolved: historical/existing transactions are left as-is; the fix applies only to amounts entered or imported going forward, per BA decision.
 - How does the system handle amounts with more than two decimal digits of precision (e.g. from imported files with sub-cent precision)?
 
 ## Requirements *(mandatory)*
@@ -69,7 +69,8 @@ A developer or maintainer needs confidence that the amount-to-integer-cents conv
 - **FR-003**: System MUST continue to correctly convert amounts that were already unaffected by the defect (e.g. 3.10, 5.55), producing the same correct results as before.
 - **FR-004**: System MUST apply the corrected conversion consistently across all entry points that create or modify transaction amounts, including manual transaction entry and file import.
 - **FR-005**: System MUST include automated regression test coverage for the amount-to-integer-cents conversion logic, including at least one case that previously failed due to the floating-point rounding defect.
-- **FR-006**: System MUST handle [NEEDS CLARIFICATION: tie-breaking rule for exact half-cent values] when the entered amount falls exactly between two cent values.
+- **FR-006**: System MUST round exact half-cent values half up (toward positive infinity) when the entered amount falls exactly between two cent values, applying this same rule uniformly regardless of whether the amount is positive or negative.
+- **FR-007**: System MUST NOT modify or migrate historical transaction amounts that were already saved incorrectly before this fix ships; the corrected conversion applies only to amounts entered or imported going forward.
 
 ### Key Entities
 
@@ -87,6 +88,6 @@ A developer or maintainer needs confidence that the amount-to-integer-cents conv
 ## Assumptions
 
 - The defect is isolated to the decimal-amount-to-integer-cents conversion step; the reverse conversion (integer cents back to a displayed decimal amount) is assumed to already be correct and is out of scope unless testing reveals otherwise.
-- "Nearest cent" rounding for amounts that are not exactly on a cent boundary due to floating-point error follows standard commercial rounding conventions (round half up) unless clarified otherwise.
-- This fix addresses newly entered and newly imported amounts going forward; whether historical data requires correction is called out explicitly as a clarification above rather than assumed.
+- "Nearest cent" rounding for amounts that are not exactly on a cent boundary due to floating-point error follows standard commercial rounding conventions (round half up), confirmed by the BA.
+- Historical/existing transactions that were already saved a cent short are left uncorrected; the fix applies only to amounts entered or imported going forward, confirmed by the BA.
 - The fix applies only to the conversion of decimal currency amounts with up to two decimal digits (the standard precision for supported currencies); behavior for currencies or inputs with different decimal precision is not in scope.
