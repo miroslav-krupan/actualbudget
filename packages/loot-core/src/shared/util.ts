@@ -543,7 +543,11 @@ export function amountToInteger(
   decimalPlaces: number = 2,
 ): IntegerAmount {
   const multiplier = Math.pow(10, decimalPlaces);
-  return Math.floor(amount * multiplier);
+  // Round to the nearest integer cent instead of flooring, since flooring
+  // truncates floating-point artifacts (e.g. 19.99 * 100 === 1998.9999...)
+  // and drops a cent. Ties round half up (toward positive infinity),
+  // regardless of sign.
+  return Math.floor(amount * multiplier + 0.5);
 }
 
 export function integerToAmount(

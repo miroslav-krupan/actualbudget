@@ -1,0 +1,5 @@
+regression: 19.99 rounds to nearest cent instead of flooring
+previously-correct amounts remain unchanged
+rounds half-cent ties up (toward positive infinity) for positive amounts
+rounds half-cent ties up (toward positive infinity) for negative amounts
+regression: import-style conversion of 19.99 does not lose a cent
