@@ -1,0 +1,16 @@
+{
+  "issue": 38,
+  "round": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Should transactions that were already saved a cent short before this fix ships be corrected/migrated (e.g. via a one-time data migration or recalculation), or should the fix only apply to amounts entered or imported going forward?",
+      "rationale": "This determines whether users' existing account balances and historical transaction records remain permanently understated, or whether a migration is required. It directly affects user trust in reported balances and the scope of work (a one-off data fix vs. a pure code change), so it is the single decision with the largest impact on user-visible business outcomes."
+    },
+    {
+      "id": "Q2",
+      "question": "When an entered amount resolves to an exact half-cent value due to floating-point representation, what tie-breaking rule should be applied — round half up, round half away from zero, or round half to even?",
+      "rationale": "This choice changes the exact stored cent value for a (rare but real) class of amounts, which affects reconciliation accuracy and could itself become a new source of off-by-one-cent discrepancies if left to implementation discretion rather than an explicit business rule."
+    }
+  ]
+}
