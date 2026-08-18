@@ -1,6 +1,8 @@
 import {
   amountToCurrencyInteger,
+  amountToInteger,
   currencyToAmount,
+  currencyToInteger,
   getNumberFormat,
   integerToCurrencyWithDecimal,
   looselyParseAmount,
@@ -303,5 +305,37 @@ describe('utility functions', () => {
         expect(decoded).toBeCloseTo(amount, 8);
       },
     );
+  });
+
+  describe('amountToInteger', () => {
+    test('regression: 19.99 rounds to nearest cent instead of flooring', () => {
+      // 19.99 * 100 === 1998.9999999999998 in floating point, so flooring
+      // used to drop a cent (1998) instead of rounding to 1999.
+      expect(amountToInteger(19.99)).toBe(1999);
+    });
+
+    test('previously-correct amounts remain unchanged', () => {
+      expect(amountToInteger(3.1)).toBe(310);
+      expect(amountToInteger(5.55)).toBe(555);
+    });
+
+    test('rounds half-cent ties up (toward positive infinity) for positive amounts', () => {
+      // 0.025 * 100 === 2.5 exactly in floating point.
+      expect(amountToInteger(0.025)).toBe(3);
+    });
+
+    test('rounds half-cent ties up (toward positive infinity) for negative amounts', () => {
+      // -0.025 * 100 === -2.5 exactly in floating point; rounding toward
+      // positive infinity means this rounds up to -2, not down to -3.
+      expect(amountToInteger(-0.025)).toBe(-2);
+    });
+  });
+
+  describe('currencyToInteger', () => {
+    test('regression: import-style conversion of 19.99 does not lose a cent', () => {
+      // currencyToInteger backs import parsing, and shares amountToInteger,
+      // so it must pick up the rounding fix automatically.
+      expect(currencyToInteger('19.99')).toBe(1999);
+    });
   });
 });
